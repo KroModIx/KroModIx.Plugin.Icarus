@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: Directory.Packages.props
+      - name: Version ermitteln
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "v=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore (GitHub Packages)
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dotnet nuget update source kroste-github \
+            --username github-actions \
+            --password "${NUGET_AUTH_TOKEN}" \
+            --store-password-in-clear-text
+          dotnet restore
+      - name: Build
+        run: >
+          dotnet build --no-restore -c Release
+          -p:Version=${{ steps.ver.outputs.v }}
+      - name: Plugin-Bundle packen
+        run: |
+          mkdir -p bundle
+          cp ModManager.Plugins.Icarus/bin/Release/net10.0/ModManager.Plugins.Icarus.dll bundle/
+          cp ModManager.Plugins.Icarus/bin/Release/net10.0/plugin.json bundle/
+          cd bundle
+          zip -r "../ModManager.Plugins.Icarus-${{ steps.ver.outputs.v }}.zip" .
+      - name: GitHub-Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ModManager.Plugins.Icarus-*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>ModManager.Plugins.Icarus</RootNamespace>
+    <AssemblyName>ModManager.Plugins.Icarus</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Kroste.ModManager.PluginContracts"
+                      PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Avalonia"
+                      PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
