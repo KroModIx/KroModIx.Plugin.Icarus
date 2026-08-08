@@ -103,6 +103,12 @@ public sealed class NexusView : UserControl
         };
         list.Bind(ListBox.ItemsSourceProperty, new Binding(nameof(NexusViewModel.Rows)));
         list.ItemTemplate = new FuncDataTemplate<NexusRow>((row, _) => row is null ? null : BuildRowTemplate(), true);
+        // Doppelklick auf Row öffnet Detail-Dialog (analog LS25-ModHubView).
+        list.DoubleTapped += (_, _) =>
+        {
+            if (DataContext is NexusViewModel vm && list.SelectedItem is NexusRow row)
+                vm.ShowDetailCommand.Execute(row);
+        };
         catalogPanel.Children.Add(list);
 
         var root = new Panel();
@@ -179,8 +185,17 @@ public sealed class NexusView : UserControl
             Children = { title, meta, summary },
         };
 
+        var detailBtn = new Button { Content = "🔍  Details" };
+        detailBtn.Classes.Add("accent");
+        detailBtn.Bind(Button.CommandProperty, new Binding
+        {
+            RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
+            Path = "DataContext." + nameof(NexusViewModel.ShowDetailCommand),
+        });
+        detailBtn.Bind(Button.CommandParameterProperty, new Binding("."));
+
         var openBtn = new Button { Content = "↗  Nexus öffnen" };
-        openBtn.Classes.Add("accent");
+        openBtn.Classes.Add("ghost");
         openBtn.Bind(Button.CommandProperty, new Binding
         {
             RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
@@ -191,7 +206,7 @@ public sealed class NexusView : UserControl
         var actions = new StackPanel
         {
             Spacing = 6, VerticalAlignment = VerticalAlignment.Center,
-            Children = { openBtn },
+            Children = { detailBtn, openBtn },
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };

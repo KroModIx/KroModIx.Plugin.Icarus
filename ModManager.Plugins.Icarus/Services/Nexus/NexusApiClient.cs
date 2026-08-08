@@ -118,6 +118,75 @@ public sealed class NexusApiClient : IDisposable
         return result;
     }
 
+    /// <summary>Volles Mod-Detail (Beschreibung, Downloads, Kategorie-ID, …)
+    /// via <c>GET /v1/games/{slug}/mods/{id}.json</c>. Ein Extra-API-Call
+    /// pro Detail-Öffnung — nutzt einen der 2500/h Personal-Rate-Limit-Slots.</summary>
+    public async Task<NexusModDetail?> GetModDetailAsync(string gameSlug, int modId,
+        CancellationToken ct = default)
+    {
+        var key = _apiKeyProvider();
+        if (string.IsNullOrEmpty(key)) return null;
+
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            $"v1/games/{gameSlug}/mods/{modId}.json");
+        req.Headers.Add("apikey", key);
+        using var resp = await _http.SendAsync(req, ct);
+        LogRateLimit(resp);
+        if (!resp.IsSuccessStatusCode)
+        {
+            Log.Warn("Nexus detail HTTP {Code} für mod_id={Id}", (int)resp.StatusCode, modId);
+            return null;
+        }
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var m = JsonSerializer.Deserialize<NexusModFull>(body, JsonOpts);
+        if (m is null) return null;
+
+        return new NexusModDetail(
+            ModId: m.ModId,
+            Name: m.Name ?? "",
+            Author: m.User?.Name ?? m.Author ?? "",
+            Summary: m.Summary ?? "",
+            DescriptionHtml: m.Description ?? "",
+            Version: m.Version ?? "",
+            PictureUrl: m.PictureUrl ?? "",
+            CategoryId: m.CategoryId,
+            CreatedUtc: FromUnixSeconds(m.CreatedTimestamp),
+            UpdatedUtc: FromUnixSeconds(m.UpdatedTimestamp),
+            EndorsementCount: m.EndorsementCount,
+            ContainsAdultContent: m.ContainsAdultContent,
+            Available: m.Available,
+            DomainName: m.DomainName ?? gameSlug);
+    }
+
+    /// <summary>Alle Kategorien für ein Spiel — Nexus liefert nur category_id
+    /// in den Mod-Responses, mit dieser Liste können wir auf Namen mappen.
+    /// Lädt nur einmal pro Session (Cache im <see cref="NexusCategoryService"/>).</summary>
+    public async Task<IReadOnlyList<NexusCategory>> GetCategoriesAsync(string gameSlug,
+        CancellationToken ct = default)
+    {
+        var key = _apiKeyProvider();
+        if (string.IsNullOrEmpty(key)) return Array.Empty<NexusCategory>();
+
+        // Die Categories stehen als Sub-Objekt in /v1/games/{slug}.json.
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"v1/games/{gameSlug}.json");
+        req.Headers.Add("apikey", key);
+        using var resp = await _http.SendAsync(req, ct);
+        LogRateLimit(resp);
+        if (!resp.IsSuccessStatusCode)
+        {
+            Log.Warn("Nexus game-info HTTP {Code} für slug={Slug}", (int)resp.StatusCode, gameSlug);
+            return Array.Empty<NexusCategory>();
+        }
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var game = JsonSerializer.Deserialize<NexusGameInfo>(body, JsonOpts);
+        if (game?.Categories is null) return Array.Empty<NexusCategory>();
+
+        var result = new List<NexusCategory>(game.Categories.Count);
+        foreach (var c in game.Categories)
+            result.Add(new NexusCategory(c.CategoryId, c.Name ?? "", c.ParentCategory));
+        return result;
+    }
+
     private static void LogRateLimit(HttpResponseMessage resp)
     {
         if (resp.Headers.TryGetValues("X-RL-Hourly-Remaining", out var h))
@@ -156,5 +225,60 @@ public sealed class NexusApiClient : IDisposable
     private sealed class NexusModUser
     {
         public string? Name { get; set; }
+    }
+
+    /// <summary>Volles Mod-Objekt aus /mods/{id}.json. Mehr Felder als
+    /// <see cref="NexusMod"/> — insbesondere <c>description</c> (HTML) und
+    /// <c>category_id</c>.</summary>
+    private sealed class NexusModFull
+    {
+        [JsonPropertyName("mod_id")] public int ModId { get; set; }
+        public string? Name { get; set; }
+        public string? Summary { get; set; }
+        public string? Description { get; set; }
+        public string? Version { get; set; }
+        public string? PictureUrl { get; set; }
+        public string? Author { get; set; }
+        public NexusModUser? User { get; set; }
+        [JsonPropertyName("category_id")] public int CategoryId { get; set; }
+        [JsonPropertyName("created_timestamp")] public long CreatedTimestamp { get; set; }
+        [JsonPropertyName("updated_timestamp")] public long UpdatedTimestamp { get; set; }
+        [JsonPropertyName("endorsement_count")] public long EndorsementCount { get; set; }
+        [JsonPropertyName("contains_adult_content")] public bool ContainsAdultContent { get; set; }
+        public bool Available { get; set; } = true;
+        [JsonPropertyName("domain_name")] public string? DomainName { get; set; }
+    }
+
+    private sealed class NexusGameInfo
+    {
+        public List<NexusGameCategory>? Categories { get; set; }
+    }
+
+    private sealed class NexusGameCategory
+    {
+        [JsonPropertyName("category_id")] public int CategoryId { get; set; }
+        public string? Name { get; set; }
+        /// <summary>Nexus liefert entweder int (parent id) oder bool false
+        /// (Root-Kategorie). Mit AllowReadingFromString+Custom-Handling geht das
+        /// nicht sauber — deshalb JsonElement lesen und selbst parsen.</summary>
+        [JsonPropertyName("parent_category")]
+        [JsonConverter(typeof(FalseOrIntConverter))]
+        public int ParentCategory { get; set; }
+    }
+
+    /// <summary>Nexus liefert <c>parent_category: false</c> für Root-Kategorien und
+    /// eine int-ID für Subkategorien. System.Text.Json würde ohne diesen Converter
+    /// mit JsonException aussteigen.</summary>
+    private sealed class FalseOrIntConverter : JsonConverter<int>
+    {
+        public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.False) return 0;
+            if (reader.TokenType == JsonTokenType.True) return 0;
+            if (reader.TokenType == JsonTokenType.Number) return reader.GetInt32();
+            return 0;
+        }
+        public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options)
+            => writer.WriteNumberValue(value);
     }
 }

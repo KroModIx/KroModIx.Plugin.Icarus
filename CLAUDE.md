@@ -11,6 +11,29 @@
 
 ## Aktueller Stand
 
+**v0.3.0 (M5.3 — Nexus-Detail-Dialog + KI-Zusammenfassung):**
+- Doppelklick auf eine Nexus-Karte (oder Klick auf 🔍 Details) öffnet ein
+  modales Detail-Fenster (`NexusModDetailWindow`) im Kroste-Custom-Chrome
+  (BorderOnly + ExtendClientAreaToDecorationsHint, draggable Titelbar).
+- Detail-Fenster lädt async `/v1/games/{slug}/mods/{id}.json` mit
+  vollständiger HTML-Beschreibung, Kategorie-ID, Adult-Content-Flag.
+- HTML-Description wird plain-text-konvertiert via `HtmlStrip` (schneller
+  Regex-basierter Konverter, kein HtmlAgilityPack-Dep). Behandelt `<br>`,
+  `</p>`, `<li>`, HTML-Entities.
+- Kategorie-ID → Name-Mapping via `NexusCategoryService` (lädt einmal
+  pro Session `/v1/games/{slug}.json` und cached in-memory).
+- **KI-Zusammenfassung** über `_host.Ai.CompleteAsync` (Kroste-KI-Baukasten
+  im Host, keine plugin-eigene Provider-Config — Skill Kernprinzip 4).
+- Adult-Content-Badge in Kroste-Danger-Rot bei entsprechendem Flag.
+- Layout: großes Cover (240×160) links, Titel + Meta-Grid rechts,
+  Summary + KI-Zusammenfassung + Beschreibung in scrollbarem Bereich.
+
+**v0.2.1 (Cosmetic — Version-Prefix + Update-Datum):**
+- Smart-Version-Prefix: „v" nur wenn die Version mit einer Ziffer beginnt.
+  Verhindert „vV1.4.0" (Autor hatte schon eigenes V davor) und „vweek244".
+- Update-Datum als relative Zeit („heute", „vor 3 Tagen", „vor 2 Monaten")
+  in der Row-Meta zwischen Version und Endorsements.
+
 **v0.2.0 (M5.2 — Workshop-Support + Nexus-Katalog + Backup + Kroste-Look):**
 - **Bug-Fix `~mods` → `mods`**: v0.1.0 zeigte auf `Content/Paks/~mods/`
   (UE4-Konvention), Icarus nutzt aber `Content/Paks/mods/` (ohne Tilde) —
@@ -55,13 +78,13 @@ mit falschem `~mods`-Path. Ersetzt durch v0.2.0.
 
 ## Roadmap
 
-- **v0.3** — Optional: KI-Zusammenfassung im Nexus-Detail via `_host.Ai`
-  (analog LS25-ModDetail).
 - **v0.4** — Optional: GitHubReleaseCatalog als zweite Katalog-Quelle, sobald
   wir eigene Kroste-Icarus-Mods bauen. Contract kommt vermutlich als
   `PluginContracts.GitHub`-Helper aus dem Host-Repo.
 - **v0.5** — Optional: Nexus-Premium-Download via API (spart Slow-Wall) —
   nur wenn ein Premium-User uns danach fragt.
+- **v0.6** — Optional: Nexus-Screenshots im Detail-Dialog (Nexus-v1-API hat
+  keinen dedizierten Endpoint dafür — müsste die Nexus-Website scrapen).
 
 ## Referenz
 

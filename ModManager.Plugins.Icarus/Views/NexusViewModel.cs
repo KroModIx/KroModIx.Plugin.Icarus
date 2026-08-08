@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -25,14 +26,19 @@ public sealed partial class NexusViewModel : ObservableObject
 
     private readonly NexusCatalogService _catalog;
     private readonly NexusSettingsService _settings;
+    private readonly NexusApiClient _api;
+    private readonly NexusCategoryService _categories;
     private readonly IcarusPaths _paths;
     private readonly IHostServices _host;
 
     public NexusViewModel(NexusCatalogService catalog, NexusSettingsService settings,
+        NexusApiClient api, NexusCategoryService categories,
         IcarusPaths paths, IHostServices host)
     {
         _catalog = catalog;
         _settings = settings;
+        _api = api;
+        _categories = categories;
         _paths = paths;
         _host = host;
         _ = InitializeAsync();
@@ -131,6 +137,20 @@ public sealed partial class NexusViewModel : ObservableObject
     {
         if (row is null) return;
         _host.Shell.OpenExternalUrl(row.Source.DetailUrl(_settings.Current.GameSlug));
+    }
+
+    /// <summary>Öffnet den Detail-Dialog für die Row. Analog LS25-ShowDetail:
+    /// eigenes Modal-Fenster mit Owner=MainWindow, VM lädt /mods/{id}.json
+    /// async, KI-Zusammenfassung über <c>_host.Ai</c>.</summary>
+    [RelayCommand]
+    private void ShowDetail(NexusRow? row)
+    {
+        if (row is null) return;
+        var vm = new NexusModDetailViewModel(row, _settings.Current.GameSlug, _api, _categories, _host);
+        var window = new NexusModDetailWindow { DataContext = vm };
+        var owner = (Avalonia.Application.Current?.ApplicationLifetime
+            as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (owner is not null) window.Show(owner); else window.Show();
     }
 
     [RelayCommand]

@@ -14,7 +14,7 @@ public sealed class IcarusPlugin : IGameModPlugin
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "0.2.1",
+        Version: "0.3.0",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
@@ -34,6 +34,7 @@ public sealed class IcarusPlugin : IGameModPlugin
     private NexusSettingsService? _nexusSettings;
     private NexusApiClient? _nexusApi;
     private NexusCatalogService? _nexusCatalog;
+    private NexusCategoryService? _nexusCategories;
     private DownloadEventBus? _downloadBus;
     private readonly Dictionary<string, PakInstallService> _installers = new();
     private readonly Dictionary<string, PakBackupService> _backups = new();
@@ -48,6 +49,7 @@ public sealed class IcarusPlugin : IGameModPlugin
             host.CreateHttpClient("nexus"),
             () => _nexusSettings.GetApiKey());
         _nexusCatalog = new NexusCatalogService(_nexusApi, _nexusSettings, _paths);
+        _nexusCategories = new NexusCategoryService(_nexusApi, _nexusSettings);
         _downloadBus = new DownloadEventBus();
 
         foreach (var game in activatedGames)
@@ -73,12 +75,12 @@ public sealed class IcarusPlugin : IGameModPlugin
     {
         if (!_installers.TryGetValue(game.Target.GameId, out var installer) || _host is null
             || _paths is null || _downloadBus is null || _nexusSettings is null
-            || _nexusApi is null || _nexusCatalog is null
+            || _nexusApi is null || _nexusCatalog is null || _nexusCategories is null
             || !_backups.TryGetValue(game.Target.GameId, out var backup))
             yield break;
 
         yield return new InstalledTab(installer, backup, _paths, _downloadBus, _host);
-        yield return new NexusTab(_nexusCatalog, _nexusSettings, _paths, _host);
+        yield return new NexusTab(_nexusCatalog, _nexusSettings, _nexusApi, _nexusCategories, _paths, _host);
         yield return new DownloadsTab(installer, _downloadBus, _host);
         yield return new NexusSettingsTab(_nexusSettings, _nexusApi, _host);
     }
@@ -113,18 +115,21 @@ public sealed class IcarusPlugin : IGameModPlugin
     {
         private readonly NexusCatalogService _catalog;
         private readonly NexusSettingsService _settings;
+        private readonly NexusApiClient _api;
+        private readonly NexusCategoryService _categories;
         private readonly IcarusPaths _paths;
         private readonly IHostServices _host;
         public NexusTab(NexusCatalogService catalog, NexusSettingsService settings,
+            NexusApiClient api, NexusCategoryService categories,
             IcarusPaths paths, IHostServices host)
-        { _catalog = catalog; _settings = settings; _paths = paths; _host = host; }
+        { _catalog = catalog; _settings = settings; _api = api; _categories = categories; _paths = paths; _host = host; }
         public string Id => "nexus";
         public string Label => "Nexus";
         public string Icon => "\U0001F30D"; // 🌍
         public int Order => 10;
         public bool IsVisible(DetectedGame game) => true;
         public Control CreateView(DetectedGame game, IHostServices host) =>
-            new NexusView { DataContext = new NexusViewModel(_catalog, _settings, _paths, _host) };
+            new NexusView { DataContext = new NexusViewModel(_catalog, _settings, _api, _categories, _paths, _host) };
     }
 
     private sealed class DownloadsTab : IGameTabContribution

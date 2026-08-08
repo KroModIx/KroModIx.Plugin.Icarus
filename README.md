@@ -10,7 +10,7 @@ Icarus (RocketWerkz) Mod-Manager als Plugin für den [Kroste ModManager](https:/
   - Manuelle PAK-Mods: `<Icarus-Install>/Icarus/Content/Paks/mods/`
   - Steam-Workshop-Abos: `<Library>/steamapps/workshop/content/1149460/`
 
-## Features (v0.2.0)
+## Features (v0.3.0)
 
 - **Tab „Installiert"** — Manuelle Mods + Steam-Workshop-Abos gemeinsam,
   Workshop-Rows sind read-only (Steam verwaltet), farbliches Badge zur
@@ -19,7 +19,9 @@ Icarus (RocketWerkz) Mod-Manager als Plugin für den [Kroste ModManager](https:/
   Shortcuts, Drag&Drop von .pak-Files.
 - **Tab „Nexus"** — Katalog der drei Nexus-Listen (latest_added,
   latest_updated, trending) als Kroste-Cards mit Cover, Autor, Version,
-  Endorsements, Summary. Klick auf „Nexus öffnen" führt zum Browser
+  Update-Datum, Endorsements, Summary. **Doppelklick oder 🔍-Button öffnet
+  Detail-Dialog** mit vollständiger Beschreibung, Kategorie und KI-
+  Zusammenfassung (via Host-KI-Provider). „Nexus öffnen" führt zum Browser
   (Free-User laden dort, Datei landet im Downloads-Ordner).
 - **Tab „Downloads"** — Watch-Ordner für Browser-Downloads. Auto-Refresh
   via FileSystemWatcher, Install- und Delete-Button pro Datei.
