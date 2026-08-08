@@ -156,8 +156,10 @@ public sealed class NexusView : UserControl
         }
         AddMuted(new Binding(nameof(NexusRow.Author)));
         var sep1 = new TextBlock { Text = "·" }; sep1.Classes.Add("muted"); meta.Children.Add(sep1);
-        AddMuted(new Binding(nameof(NexusRow.Version)), "v{0}");
+        AddMuted(new Binding(nameof(NexusRow.VersionDisplay)));
         var sep2 = new TextBlock { Text = "·" }; sep2.Classes.Add("muted"); meta.Children.Add(sep2);
+        AddMuted(new Binding(nameof(NexusRow.UpdatedText)));
+        var sep3 = new TextBlock { Text = "·" }; sep3.Classes.Add("muted"); meta.Children.Add(sep3);
         AddMuted(new Binding(nameof(NexusRow.EndorsementsText)));
 
         var summary = new TextBlock

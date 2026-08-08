@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "kroste.icarus",
   "displayName": "Icarus Mod-Manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "Kroste",
   "description": "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im Content/Paks/mods/-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet (Workshop-Rows read-only, Steam verwaltet). Nexus-Mods-Katalog mit persönlichem API-Key (Browser-Download → Watch-Ordner → Install). Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look.",
   "assembly": "ModManager.Plugins.Icarus.dll",

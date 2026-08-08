@@ -145,9 +145,38 @@ public sealed partial class NexusRow : ObservableObject
     public string Name => Source.Name;
     public string Author => Source.Author;
     public string Summary => Source.Summary;
-    public string Version => Source.Version;
+
+    /// <summary>Version mit smartem Prefix — „v" nur wenn der String
+    /// mit einer Ziffer beginnt. Verhindert „vV1.4.0" (Autor hat bereits
+    /// eigenes v davor) oder „vweek244" (Nicht-SemVer, kein Versions-
+    /// Zeichen erkannbar). Wenn Version leer: leerer String.</summary>
+    public string VersionDisplay
+    {
+        get
+        {
+            var v = Source.Version?.Trim() ?? "";
+            if (v.Length == 0) return "";
+            return char.IsDigit(v[0]) ? "v" + v : v;
+        }
+    }
+
     public string EndorsementsText => Source.Endorsements > 0 ? $"👍 {Source.Endorsements}" : "";
-    public string UpdatedText => Source.UpdatedUtc.ToLocalTime().ToString("g");
+
+    /// <summary>„Aktualisiert vor N Tagen" — relative statt absolut, damit
+    /// die Meta-Zeile nicht mit Datum überladen wird. Bei > 1 Jahr fällt
+    /// die Ausgabe auf ISO-Datum zurück.</summary>
+    public string UpdatedText
+    {
+        get
+        {
+            var delta = DateTime.UtcNow - Source.UpdatedUtc;
+            if (delta.TotalDays < 1) return "heute";
+            if (delta.TotalDays < 2) return "gestern";
+            if (delta.TotalDays < 30) return $"vor {(int)delta.TotalDays} Tagen";
+            if (delta.TotalDays < 365) return $"vor {(int)(delta.TotalDays / 30)} Monaten";
+            return Source.UpdatedUtc.ToLocalTime().ToString("yyyy-MM-dd");
+        }
+    }
 
     [ObservableProperty]
     private Bitmap? _cover;

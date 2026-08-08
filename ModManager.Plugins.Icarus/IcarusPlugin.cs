@@ -14,7 +14,7 @@ public sealed class IcarusPlugin : IGameModPlugin
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "0.2.0",
+        Version: "0.2.1",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
