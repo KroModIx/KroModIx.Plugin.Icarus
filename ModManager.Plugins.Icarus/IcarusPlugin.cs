@@ -1,10 +1,10 @@
-using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using ModManager.PluginContracts;
 using ModManager.Plugins.Icarus.Services;
+using ModManager.Plugins.Icarus.Services.Nexus;
 using ModManager.Plugins.Icarus.Views;
 
 namespace ModManager.Plugins.Icarus;
@@ -14,9 +14,12 @@ public sealed class IcarusPlugin : IGameModPlugin
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "0.1.0",
+        Version: "0.2.0",
         Author: "Kroste",
-        Description: "PAK-Mod-Verwaltung für Icarus.");
+        Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
+            "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
+            "(Workshop-Rows read-only). Nexus-Mods-Katalog mit Personal-API-Key. " +
+            "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look.");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {
@@ -27,57 +30,132 @@ public sealed class IcarusPlugin : IGameModPlugin
     };
 
     private IHostServices? _host;
+    private IcarusPaths? _paths;
+    private NexusSettingsService? _nexusSettings;
+    private NexusApiClient? _nexusApi;
+    private NexusCatalogService? _nexusCatalog;
+    private DownloadEventBus? _downloadBus;
     private readonly Dictionary<string, PakInstallService> _installers = new();
-    private readonly IcarusPathResolver _paths = new();
+    private readonly Dictionary<string, PakBackupService> _backups = new();
+    private readonly IcarusPathResolver _pathResolver = new();
 
     public Task InitializeAsync(IHostServices host, IReadOnlyList<DetectedGame> activatedGames, CancellationToken ct)
     {
         _host = host;
+        _paths = new IcarusPaths(host);
+        _nexusSettings = new NexusSettingsService(_paths, host.Secrets);
+        _nexusApi = new NexusApiClient(
+            host.CreateHttpClient("nexus"),
+            () => _nexusSettings.GetApiKey());
+        _nexusCatalog = new NexusCatalogService(_nexusApi, _nexusSettings, _paths);
+        _downloadBus = new DownloadEventBus();
+
         foreach (var game in activatedGames)
         {
-            var modsDir = _paths.GetModsDir(game);
-            if (modsDir is null)
+            var manualDir = _pathResolver.GetManualModsDir(game);
+            var workshopDir = _pathResolver.GetWorkshopContentDir(game);
+            if (manualDir is null)
             {
-                host.Logger.Warn("Icarus: konnte keinen Mods-Pfad ableiten für {Game}", game.Target.DisplayName);
+                host.Logger.Warn("Icarus: konnte keinen Manual-Mods-Pfad ableiten für {Game}",
+                    game.Target.DisplayName);
                 continue;
             }
-            _installers[game.Target.GameId] = new PakInstallService(modsDir);
-            host.Logger.Info("Icarus initialisiert: Mods-Ordner = {Path}", modsDir);
+            var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir);
+            _installers[game.Target.GameId] = installer;
+            _backups[game.Target.GameId] = new PakBackupService(installer);
+            host.Logger.Info("Icarus initialisiert: manual={Manual}, workshop={Workshop}, downloads={Downloads}",
+                manualDir, workshopDir ?? "(none)", _paths.DownloadsDir);
         }
         return Task.CompletedTask;
     }
 
     public IEnumerable<IGameTabContribution> GetTabContributions(DetectedGame game)
     {
-        if (!_installers.TryGetValue(game.Target.GameId, out var installer) || _host is null)
+        if (!_installers.TryGetValue(game.Target.GameId, out var installer) || _host is null
+            || _paths is null || _downloadBus is null || _nexusSettings is null
+            || _nexusApi is null || _nexusCatalog is null
+            || !_backups.TryGetValue(game.Target.GameId, out var backup))
             yield break;
-        yield return new InstalledPaksTab(installer, _host);
+
+        yield return new InstalledTab(installer, backup, _paths, _downloadBus, _host);
+        yield return new NexusTab(_nexusCatalog, _nexusSettings, _paths, _host);
+        yield return new DownloadsTab(installer, _downloadBus, _host);
+        yield return new NexusSettingsTab(_nexusSettings, _nexusApi, _host);
     }
 
     public Task ShutdownAsync()
     {
+        _nexusApi?.Dispose();
         _host?.Logger.Info("Icarus shutdown");
         return Task.CompletedTask;
     }
 
-    private sealed class InstalledPaksTab : IGameTabContribution
+    private sealed class InstalledTab : IGameTabContribution
     {
         private readonly PakInstallService _installer;
+        private readonly PakBackupService _backup;
+        private readonly IcarusPaths _paths;
+        private readonly DownloadEventBus _bus;
         private readonly IHostServices _host;
-
-        public InstalledPaksTab(PakInstallService installer, IHostServices host)
-        {
-            _installer = installer;
-            _host = host;
-        }
-
+        public InstalledTab(PakInstallService installer, PakBackupService backup,
+            IcarusPaths paths, DownloadEventBus bus, IHostServices host)
+        { _installer = installer; _backup = backup; _paths = paths; _bus = bus; _host = host; }
         public string Id => "installed";
         public string Label => "Installiert";
-        public string Icon => "\U0001F5FB"; // 🗻 (Berg-Motiv passt zu Icarus/Prometheus)
+        public string Icon => "\U0001F5FB"; // 🗻
         public int Order => 0;
         public bool IsVisible(DetectedGame game) => true;
-
         public Control CreateView(DetectedGame game, IHostServices host) =>
-            new InstalledPaksView { DataContext = new InstalledPaksViewModel(_installer, _host) };
+            new InstalledPaksView { DataContext = new InstalledPaksViewModel(_installer, _backup, _paths, _bus, _host) };
+    }
+
+    private sealed class NexusTab : IGameTabContribution
+    {
+        private readonly NexusCatalogService _catalog;
+        private readonly NexusSettingsService _settings;
+        private readonly IcarusPaths _paths;
+        private readonly IHostServices _host;
+        public NexusTab(NexusCatalogService catalog, NexusSettingsService settings,
+            IcarusPaths paths, IHostServices host)
+        { _catalog = catalog; _settings = settings; _paths = paths; _host = host; }
+        public string Id => "nexus";
+        public string Label => "Nexus";
+        public string Icon => "\U0001F30D"; // 🌍
+        public int Order => 10;
+        public bool IsVisible(DetectedGame game) => true;
+        public Control CreateView(DetectedGame game, IHostServices host) =>
+            new NexusView { DataContext = new NexusViewModel(_catalog, _settings, _paths, _host) };
+    }
+
+    private sealed class DownloadsTab : IGameTabContribution
+    {
+        private readonly PakInstallService _installer;
+        private readonly DownloadEventBus _bus;
+        private readonly IHostServices _host;
+        public DownloadsTab(PakInstallService installer, DownloadEventBus bus, IHostServices host)
+        { _installer = installer; _bus = bus; _host = host; }
+        public string Id => "downloads";
+        public string Label => "Downloads";
+        public string Icon => "\U0001F4E5"; // 📥
+        public int Order => 20;
+        public bool IsVisible(DetectedGame game) => true;
+        public Control CreateView(DetectedGame game, IHostServices host) =>
+            new DownloadsView { DataContext = new DownloadsViewModel(_installer, _bus, _host) };
+    }
+
+    private sealed class NexusSettingsTab : IGameTabContribution
+    {
+        private readonly NexusSettingsService _settings;
+        private readonly NexusApiClient _api;
+        private readonly IHostServices _host;
+        public NexusSettingsTab(NexusSettingsService settings, NexusApiClient api, IHostServices host)
+        { _settings = settings; _api = api; _host = host; }
+        public string Id => "nexus-settings";
+        public string Label => "Nexus-Einstellungen";
+        public string Icon => "\U0001F511"; // 🔑
+        public int Order => 30;
+        public bool IsVisible(DetectedGame game) => true;
+        public Control CreateView(DetectedGame game, IHostServices host) =>
+            new NexusSettingsView { DataContext = new NexusSettingsViewModel(_settings, _api, _host) };
     }
 }

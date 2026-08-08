@@ -7,25 +7,46 @@ Icarus (RocketWerkz) Mod-Manager als Plugin für den [Kroste ModManager](https:/
 ## Ziel-Spiel
 
 - **Icarus** (Steam App-ID 1149460)
-  - PAK-Mods gehen nach `<Icarus-Install>/Icarus/Content/Paks/~mods/`
+  - Manuelle PAK-Mods: `<Icarus-Install>/Icarus/Content/Paks/mods/`
+  - Steam-Workshop-Abos: `<Library>/steamapps/workshop/content/1149460/`
 
-## Aktueller Umfang (v0.1.0)
+## Features (v0.2.0)
 
-- Tab **Installiert**: PAK-Mods listen, Aktiv/Inaktiv toggeln (`.pak.disabled`-
-  Rename), lokale PAK installieren, deinstallieren, Mods-Ordner öffnen.
+- **Tab „Installiert"** — Manuelle Mods + Steam-Workshop-Abos gemeinsam,
+  Workshop-Rows sind read-only (Steam verwaltet), farbliches Badge zur
+  Unterscheidung. Filter (Suche + Manual/Workshop-Toggles), Multi-Select
+  mit Bulk-Aktivieren/Deaktivieren/Deinstallieren, Kontextmenü, F5/Ctrl+F/Del-
+  Shortcuts, Drag&Drop von .pak-Files.
+- **Tab „Nexus"** — Katalog der drei Nexus-Listen (latest_added,
+  latest_updated, trending) als Kroste-Cards mit Cover, Autor, Version,
+  Endorsements, Summary. Klick auf „Nexus öffnen" führt zum Browser
+  (Free-User laden dort, Datei landet im Downloads-Ordner).
+- **Tab „Downloads"** — Watch-Ordner für Browser-Downloads. Auto-Refresh
+  via FileSystemWatcher, Install- und Delete-Button pro Datei.
+- **Tab „Nexus-Einstellungen"** — Personal-API-Key eintragen (verschlüsselt
+  via DPAPI/AES gespeichert), Verify-Button, Game-Slug, Cache-Refresh-Intervall.
+- **Backup/Restore** manueller Mods als ZIP mit Enabled-State-Manifest.
+- **Auto-Refresh**: FileSystemWatcher auf Manual/Workshop/Downloads +
+  Plugin-interner Event-Bus — kein „Aktualisieren"-Klick nötig.
 
-## Roadmap
+## Nexus-API-Key beschaffen
 
-- v0.2 — Katalog über `GitHubReleaseCatalog` (Kroste-hostete Icarus-Mods)
-- v0.3 — modDesc-Alternativen: Manifest-Datei neben der PAK (Autor/Version/Beschreibung)
+1. Bei nexusmods.com anmelden (kostenlos)
+2. https://www.nexusmods.com/users/myaccount?tab=api%20access öffnen
+3. „Personal API Key" generieren, kopieren
+4. Im Plugin-Tab „Nexus-Einstellungen" einfügen, „Speichern", „Verify" klicken
+
+Rate-Limit: 2500 Requests pro Stunde mit Personal-Key (Nexus-Standard).
+Der Key wird lokal mit DPAPI (Windows) bzw. AES + Machine-Bindung (Linux)
+verschlüsselt gespeichert und niemals im Log ausgegeben.
 
 ## Installation
 
 Aus [Release](https://github.com/Kroste/ModManager.Plugins.Icarus/releases)
 das ZIP entpacken nach:
 
-- **Linux:** `~/.config/ModManager/plugins/icarus/`
-- **Windows:** `%APPDATA%\ModManager\plugins\icarus\`
+- **Linux:** `~/.config/ModManager/plugins/kroste.icarus/`
+- **Windows:** `%APPDATA%\ModManager\plugins\kroste.icarus\`
 
 Ab Host v0.3 alternativ: 1-Klick-Install über die Install-Karte in der Sidebar.
 
