@@ -48,13 +48,15 @@ public sealed class NexusApiClient : IDisposable
 
     public void Dispose() => _http.Dispose();
 
-    /// <summary>Prüft ob der aktuelle API-Key gültig ist. Liefert
-    /// <c>(true, "Name (Premium: yes/no)")</c> bei Erfolg oder
-    /// <c>(false, Fehlermeldung)</c> sonst.</summary>
-    public async Task<(bool Ok, string Info)> ValidateAsync(CancellationToken ct = default)
+    /// <summary>Prüft ob der aktuelle API-Key gültig ist. Liefert bei Erfolg
+    /// <see cref="NexusValidateResult"/> mit Name + Premium-Flag, damit der
+    /// Aufrufer den Premium-Status persistieren und Download-Features
+    /// entsprechend enablen kann.</summary>
+    public async Task<NexusValidateResult> ValidateAsync(CancellationToken ct = default)
     {
         var key = _apiKeyProvider();
-        if (string.IsNullOrEmpty(key)) return (false, "Kein API-Key konfiguriert.");
+        if (string.IsNullOrEmpty(key))
+            return new NexusValidateResult(false, "", false, "Kein API-Key konfiguriert.");
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, "v1/users/validate.json");
@@ -63,17 +65,19 @@ public sealed class NexusApiClient : IDisposable
             var body = await resp.Content.ReadAsStringAsync(ct);
             LogRateLimit(resp);
             if (!resp.IsSuccessStatusCode)
-                return (false, $"HTTP {(int)resp.StatusCode}: {resp.ReasonPhrase}");
+                return new NexusValidateResult(false, "", false,
+                    $"HTTP {(int)resp.StatusCode}: {resp.ReasonPhrase}");
 
             var user = JsonSerializer.Deserialize<NexusUser>(body, JsonOpts);
-            return user is null
-                ? (false, "Leere Antwort von Nexus.")
-                : (true, $"{user.Name} (Premium: {(user.IsPremium ? "ja" : "nein")})");
+            if (user is null)
+                return new NexusValidateResult(false, "", false, "Leere Antwort von Nexus.");
+            return new NexusValidateResult(true, user.Name ?? "", user.IsPremium,
+                $"{user.Name} (Premium: {(user.IsPremium ? "ja" : "nein")})");
         }
         catch (Exception ex)
         {
             Log.Warn(ex, "Nexus validate fehlgeschlagen");
-            return (false, ex.Message);
+            return new NexusValidateResult(false, "", false, ex.Message);
         }
     }
 
@@ -156,6 +160,76 @@ public sealed class NexusApiClient : IDisposable
             ContainsAdultContent: m.ContainsAdultContent,
             Available: m.Available,
             DomainName: m.DomainName ?? gameSlug);
+    }
+
+    /// <summary>Alle Files eines Mods (Main, Update, Optional, Old, …).
+    /// Für Premium-Download suchen wir das MAIN+primary-File der neuesten
+    /// Version; siehe <see cref="NexusFileEntry.IsMainAndPrimary"/>.</summary>
+    public async Task<IReadOnlyList<NexusFileEntry>> GetFilesAsync(string gameSlug, int modId,
+        CancellationToken ct = default)
+    {
+        var key = _apiKeyProvider();
+        if (string.IsNullOrEmpty(key)) return Array.Empty<NexusFileEntry>();
+
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            $"v1/games/{gameSlug}/mods/{modId}/files.json");
+        req.Headers.Add("apikey", key);
+        using var resp = await _http.SendAsync(req, ct);
+        LogRateLimit(resp);
+        if (!resp.IsSuccessStatusCode)
+        {
+            Log.Warn("Nexus files HTTP {Code} für mod_id={Id}", (int)resp.StatusCode, modId);
+            return Array.Empty<NexusFileEntry>();
+        }
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var wrap = JsonSerializer.Deserialize<NexusFilesResponse>(body, JsonOpts);
+        if (wrap?.Files is null) return Array.Empty<NexusFileEntry>();
+
+        var result = new List<NexusFileEntry>(wrap.Files.Count);
+        foreach (var f in wrap.Files)
+        {
+            result.Add(new NexusFileEntry(
+                FileId: f.FileId,
+                Name: f.Name ?? "",
+                FileName: f.FileName ?? "",
+                Version: f.Version ?? "",
+                Description: f.Description ?? "",
+                CategoryId: f.CategoryId,
+                CategoryName: f.CategoryName ?? "",
+                IsPrimary: f.IsPrimary,
+                SizeInBytes: f.SizeInBytes,
+                UploadedUtc: FromUnixSeconds(f.UploadedTimestamp)));
+        }
+        return result;
+    }
+
+    /// <summary>Direkter Download-URL für ein File — <b>nur mit Premium-Key</b>
+    /// oder mit einem gültigen NXM-Session-Key. Ohne Premium bekommt man
+    /// HTTP 403 mit „You don't have permission to get download link.".
+    /// Der zurückgelieferte URL ist ein S3-Presigned-URL, kurzlebig
+    /// (~30 min TTL) — direkt danach downloaden.</summary>
+    public async Task<string?> GetDownloadLinkAsync(string gameSlug, int modId, long fileId,
+        CancellationToken ct = default)
+    {
+        var key = _apiKeyProvider();
+        if (string.IsNullOrEmpty(key)) return null;
+
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            $"v1/games/{gameSlug}/mods/{modId}/files/{fileId}/download_link.json");
+        req.Headers.Add("apikey", key);
+        using var resp = await _http.SendAsync(req, ct);
+        LogRateLimit(resp);
+        if (!resp.IsSuccessStatusCode)
+        {
+            Log.Warn("Nexus download_link HTTP {Code} — Premium-Key nötig? (mod={Mod}, file={File})",
+                (int)resp.StatusCode, modId, fileId);
+            return null;
+        }
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var arr = JsonSerializer.Deserialize<List<NexusDownloadLink>>(body, JsonOpts);
+        // Nexus liefert ein Array mit CDN-Optionen (verschiedene Regionen).
+        // Erste nehmen — API sortiert nach Nähe.
+        return arr is { Count: > 0 } ? arr[0].Uri : null;
     }
 
     /// <summary>Alle Kategorien für ein Spiel — Nexus liefert nur category_id
@@ -264,6 +338,32 @@ public sealed class NexusApiClient : IDisposable
         [JsonPropertyName("parent_category")]
         [JsonConverter(typeof(FalseOrIntConverter))]
         public int ParentCategory { get; set; }
+    }
+
+    private sealed class NexusFilesResponse
+    {
+        public List<NexusFile>? Files { get; set; }
+    }
+
+    private sealed class NexusFile
+    {
+        [JsonPropertyName("file_id")] public long FileId { get; set; }
+        public string? Name { get; set; }
+        [JsonPropertyName("file_name")] public string? FileName { get; set; }
+        public string? Version { get; set; }
+        public string? Description { get; set; }
+        [JsonPropertyName("category_id")] public int CategoryId { get; set; }
+        [JsonPropertyName("category_name")] public string? CategoryName { get; set; }
+        [JsonPropertyName("is_primary")] public bool IsPrimary { get; set; }
+        [JsonPropertyName("size_in_bytes")] public long SizeInBytes { get; set; }
+        [JsonPropertyName("uploaded_timestamp")] public long UploadedTimestamp { get; set; }
+    }
+
+    private sealed class NexusDownloadLink
+    {
+        public string? Name { get; set; }         // CDN-Region-Name
+        [JsonPropertyName("short_name")] public string? ShortName { get; set; }
+        [JsonPropertyName("URI")] public string? Uri { get; set; }
     }
 
     /// <summary>Nexus liefert <c>parent_category: false</c> für Root-Kategorien und

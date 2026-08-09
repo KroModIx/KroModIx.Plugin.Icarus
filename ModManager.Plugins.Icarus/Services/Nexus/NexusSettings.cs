@@ -22,4 +22,16 @@ public sealed class NexusSettings
     /// <summary>Welcher Katalog-Endpunkt beim ersten Load geöffnet wird
     /// (latest_added / latest_updated / trending).</summary>
     public string DefaultCatalog { get; set; } = "latest_updated";
+
+    /// <summary>Cached Premium-Status aus dem letzten <c>Verify</c>-Call.
+    /// Bestimmt ob Download-Buttons im Nexus-Tab enabled sind (Nexus liefert
+    /// direkte Download-URLs nur für Premium-Konten — für Free-User → 403).</summary>
+    public bool IsPremium { get; set; }
+
+    /// <summary>Wann der Premium-Status zuletzt geprüft wurde. Wenn älter
+    /// als ~7 Tage, im UI einen „bitte neu verifizieren"-Hint zeigen.</summary>
+    public System.DateTime? LastVerifiedUtc { get; set; }
+
+    /// <summary>Anzeige-Name des Nexus-Accounts (aus /users/validate.json).</summary>
+    public string UserName { get; set; } = "";
 }

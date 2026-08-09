@@ -229,8 +229,24 @@ public sealed class NexusModDetailWindow : Window
 
     private Control BuildFooter()
     {
+        // Primär-Aktion: Direct-Download (Premium). Ist disabled wenn kein
+        // Premium-Konto — dann führt „Auf Nexus öffnen" zum Browser-Wall.
+        var downloadBtn = new Button { Content = "⬇  Herunterladen" };
+        downloadBtn.Classes.Add("accent");
+        downloadBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusModDetailViewModel.DownloadCommand)));
+        downloadBtn.Bind(Button.IsEnabledProperty, new MultiBinding
+        {
+            Bindings =
+            {
+                new Binding(nameof(NexusModDetailViewModel.IsPremium)),
+                new Binding(nameof(NexusModDetailViewModel.DownloadBusy)) { Converter = new NegateConverter() },
+            },
+            Converter = new AllTrueConverter(),
+        });
+        ToolTip.SetTip(downloadBtn,
+            "Direct-Download in den Downloads-Ordner (Nexus-Premium nötig — sonst \"Auf Nexus öffnen\" für Browser)");
+
         var openBtn = new Button { Content = "↗  Auf Nexus öffnen" };
-        openBtn.Classes.Add("accent");
         openBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusModDetailViewModel.OpenInBrowserCommand)));
 
         var summarizeBtn = new Button { Content = "🤖  KI-Zusammenfassung" };
@@ -246,14 +262,25 @@ public sealed class NexusModDetailWindow : Window
 
         var busy = new TextBlock { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         busy.Classes.Add("muted");
-        busy.Text = "…KI läuft…";
-        busy.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(NexusModDetailViewModel.SummaryBusy)));
+        busy.Bind(TextBlock.TextProperty, new Binding(nameof(NexusModDetailViewModel.DownloadBusy))
+        {
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, string>(v => v ? "…Download läuft…" : "…KI läuft…"),
+        });
+        busy.Bind(TextBlock.IsVisibleProperty, new MultiBinding
+        {
+            Bindings =
+            {
+                new Binding(nameof(NexusModDetailViewModel.SummaryBusy)),
+                new Binding(nameof(NexusModDetailViewModel.DownloadBusy)),
+            },
+            Converter = new AnyTrueConverter(),
+        });
 
         var row = new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { busy, summarizeBtn, openBtn, closeBtn },
+            Children = { busy, summarizeBtn, downloadBtn, openBtn, closeBtn },
         };
 
         var bar = new Border
@@ -263,6 +290,34 @@ public sealed class NexusModDetailWindow : Window
             Child = row,
         };
         return bar;
+    }
+
+    private sealed class AllTrueConverter : Avalonia.Data.Converters.IMultiValueConverter
+    {
+        public object? Convert(System.Collections.Generic.IList<object?> values,
+            System.Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+        {
+            foreach (var v in values) if (v is bool b && !b) return false;
+            return true;
+        }
+    }
+
+    private sealed class AnyTrueConverter : Avalonia.Data.Converters.IMultiValueConverter
+    {
+        public object? Convert(System.Collections.Generic.IList<object?> values,
+            System.Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+        {
+            foreach (var v in values) if (v is bool b && b) return true;
+            return false;
+        }
+    }
+
+    private sealed class NegateConverter : Avalonia.Data.Converters.IValueConverter
+    {
+        public object? Convert(object? value, System.Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is bool b ? !b : Avalonia.Data.BindingOperations.DoNothing;
+        public object? ConvertBack(object? value, System.Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is bool b ? !b : Avalonia.Data.BindingOperations.DoNothing;
     }
 
     private static void AddMetaRow(Grid grid, int row, string label, string bindingPath)

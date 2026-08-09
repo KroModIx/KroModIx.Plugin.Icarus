@@ -75,8 +75,17 @@ public sealed partial class NexusSettingsViewModel : ObservableObject
         VerifyBusy = true;
         try
         {
-            var (ok, info) = await _api.ValidateAsync();
-            VerifyResult = ok ? $"✔ {info}" : $"✘ {info}";
+            var result = await _api.ValidateAsync();
+            VerifyResult = result.Ok ? $"✔ {result.Info}" : $"✘ {result.Info}";
+            if (result.Ok)
+            {
+                // Premium-Status persistieren — Nexus-Tab prüft das beim
+                // Rendern der Download-Buttons.
+                _settings.Current.IsPremium = result.IsPremium;
+                _settings.Current.UserName = result.UserName;
+                _settings.Current.LastVerifiedUtc = DateTime.UtcNow;
+                _settings.Save();
+            }
         }
         catch (Exception ex)
         {

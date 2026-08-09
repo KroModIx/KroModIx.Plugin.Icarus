@@ -11,6 +11,28 @@
 
 ## Aktueller Stand
 
+**v0.4.0 (M5.4 — Nexus-Premium-Direct-Download):**
+- **`⬇ Download`-Button pro Nexus-Row** (Accent) + im Detail-Dialog-Footer.
+  Nur enabled wenn `NexusSettings.IsPremium` (Cache aus letztem Verify).
+  Free-User bekommen Tooltip + Warnung-Notification, Browser-Weg bleibt via
+  „Nexus öffnen" verfügbar.
+- Flow: `GET /mods/{id}/files.json` → File-Auswahl-Heuristik
+  (MAIN+primary → MAIN → erstes) → `GET /files/{fileId}/download_link.json`
+  → S3-Presigned-URL → streamender Download in `PluginDataDir/downloads/`
+  mit `File.Move`-Atomizität (`.tmp` + Move) und `IProgress<double>` in
+  der Host-Statusbar (`_host.BeginProgress`).
+- `PakInstallService.DownloadPakAsync(HttpClient, url, fileName, overwrite,
+  progress, ct)` — Progress-Reporting max 5×/Sekunde debounced (spart
+  Dispatcher-Post-Flut).
+- **Premium-Status wird jetzt persistiert**: `NexusSettings.IsPremium` +
+  `UserName` + `LastVerifiedUtc` schreiben. Der `Verify`-Button im Nexus-
+  Settings-Tab setzt sie automatisch — sonst wären die Download-Buttons
+  trotz Premium-Konto disabled.
+- `NexusApiClient.ValidateAsync` liefert jetzt strukturiertes
+  `NexusValidateResult(Ok, UserName, IsPremium, Info)` statt Tuple.
+- Nach erfolgreichem Download: `DownloadEventBus.RaiseDownloadsChanged` →
+  Downloads-Tab refresht sich automatisch (Konsistenz-Regel v0.11.1-LS25).
+
 **v0.3.0 (M5.3 — Nexus-Detail-Dialog + KI-Zusammenfassung):**
 - Doppelklick auf eine Nexus-Karte (oder Klick auf 🔍 Details) öffnet ein
   modales Detail-Fenster (`NexusModDetailWindow`) im Kroste-Custom-Chrome
@@ -81,8 +103,10 @@ mit falschem `~mods`-Path. Ersetzt durch v0.2.0.
 - **v0.4** — Optional: GitHubReleaseCatalog als zweite Katalog-Quelle, sobald
   wir eigene Kroste-Icarus-Mods bauen. Contract kommt vermutlich als
   `PluginContracts.GitHub`-Helper aus dem Host-Repo.
-- **v0.5** — Optional: Nexus-Premium-Download via API (spart Slow-Wall) —
-  nur wenn ein Premium-User uns danach fragt.
+- **v0.5** — Optional: NXM-Protocol-Handler-Registrierung für Free-User
+  (nxm://-URL-Handler im OS → „Mod Manager Download"-Klick auf Nexus.com
+  öffnet uns statt Vortex/NMM). Braucht Host-Support (Plugin kann sich
+  nicht selbst als URL-Handler registrieren).
 - **v0.6** — Optional: Nexus-Screenshots im Detail-Dialog (Nexus-v1-API hat
   keinen dedizierten Endpoint dafür — müsste die Nexus-Website scrapen).
 

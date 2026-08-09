@@ -185,8 +185,25 @@ public sealed class NexusView : UserControl
             Children = { title, meta, summary },
         };
 
+        // Premium-Download-Button — nur enabled wenn NexusViewModel.IsPremium.
+        // Nexus liefert Direct-URLs nur für Premium-Konten; Free-User müssen
+        // in den Browser (den „↗ Nexus öffnen"-Button darunter).
+        var downloadBtn = new Button { Content = "⬇  Download" };
+        downloadBtn.Classes.Add("accent");
+        downloadBtn.Bind(Button.CommandProperty, new Binding
+        {
+            RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
+            Path = "DataContext." + nameof(NexusViewModel.DownloadRowCommand),
+        });
+        downloadBtn.Bind(Button.CommandParameterProperty, new Binding("."));
+        downloadBtn.Bind(Button.IsEnabledProperty, new Binding
+        {
+            RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
+            Path = "DataContext." + nameof(NexusViewModel.IsPremium),
+        });
+        ToolTip.SetTip(downloadBtn, "Direct-Download in den Downloads-Ordner (Nexus-Premium nötig)");
+
         var detailBtn = new Button { Content = "🔍  Details" };
-        detailBtn.Classes.Add("accent");
         detailBtn.Bind(Button.CommandProperty, new Binding
         {
             RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
@@ -206,7 +223,7 @@ public sealed class NexusView : UserControl
         var actions = new StackPanel
         {
             Spacing = 6, VerticalAlignment = VerticalAlignment.Center,
-            Children = { detailBtn, openBtn },
+            Children = { downloadBtn, detailBtn, openBtn },
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };

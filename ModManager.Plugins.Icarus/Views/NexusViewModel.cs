@@ -28,21 +28,33 @@ public sealed partial class NexusViewModel : ObservableObject
     private readonly NexusSettingsService _settings;
     private readonly NexusApiClient _api;
     private readonly NexusCategoryService _categories;
+    private readonly PakInstallService _installer;
+    private readonly DownloadEventBus _downloadBus;
     private readonly IcarusPaths _paths;
     private readonly IHostServices _host;
 
     public NexusViewModel(NexusCatalogService catalog, NexusSettingsService settings,
         NexusApiClient api, NexusCategoryService categories,
+        PakInstallService installer, DownloadEventBus downloadBus,
         IcarusPaths paths, IHostServices host)
     {
         _catalog = catalog;
         _settings = settings;
         _api = api;
         _categories = categories;
+        _installer = installer;
+        _downloadBus = downloadBus;
         _paths = paths;
         _host = host;
+        IsPremium = _settings.Current.IsPremium;
         _ = InitializeAsync();
     }
+
+    /// <summary>Aus <see cref="NexusSettings.IsPremium"/> beim ctor gelesen.
+    /// Steuert ob die Download-Buttons in den Rows enabled sind — Nexus
+    /// gibt Direct-Download-URLs nur für Premium-Konten heraus.</summary>
+    [ObservableProperty]
+    private bool _isPremium;
 
     public ObservableCollection<NexusRow> Rows { get; } = new();
 
@@ -141,12 +153,14 @@ public sealed partial class NexusViewModel : ObservableObject
 
     /// <summary>Öffnet den Detail-Dialog für die Row. Analog LS25-ShowDetail:
     /// eigenes Modal-Fenster mit Owner=MainWindow, VM lädt /mods/{id}.json
-    /// async, KI-Zusammenfassung über <c>_host.Ai</c>.</summary>
+    /// async, KI-Zusammenfassung über <c>_host.Ai</c>, Premium-Download
+    /// aus dem Footer.</summary>
     [RelayCommand]
     private void ShowDetail(NexusRow? row)
     {
         if (row is null) return;
-        var vm = new NexusModDetailViewModel(row, _settings.Current.GameSlug, _api, _categories, _host);
+        var vm = new NexusModDetailViewModel(row, _settings.Current.GameSlug, IsPremium,
+            _api, _categories, _installer, _downloadBus, _host);
         var window = new NexusModDetailWindow { DataContext = vm };
         var owner = (Avalonia.Application.Current?.ApplicationLifetime
             as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
@@ -155,6 +169,72 @@ public sealed partial class NexusViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenDownloadsFolder() => _host.Shell.OpenDirectory(_paths.DownloadsDir);
+
+    /// <summary>Direkt-Download für Premium-User: holt die File-Liste des
+    /// Mods, wählt das MAIN+primary-File (Fallback: erstes MAIN, sonst
+    /// erstes File überhaupt), löst den Premium-Direct-URL, streamed die
+    /// PAK in den Downloads-Ordner mit Progress-Bar in der Host-Statusbar.
+    /// Nach Erfolg feuert <see cref="DownloadEventBus.DownloadsChanged"/>
+    /// → Downloads-Tab refresht sich automatisch.</summary>
+    [RelayCommand]
+    private async Task DownloadRowAsync(NexusRow? row)
+    {
+        if (row is null) return;
+        if (!IsPremium)
+        {
+            _host.Notifications.Notify(
+                "Direct-Download braucht Nexus-Premium. Klick \"Nexus öffnen\" für den Browser-Weg.",
+                NotificationLevel.Warning);
+            return;
+        }
+
+        using var scope = _host.BeginProgress($"Nexus: {row.Name}");
+        scope.Report(0, "Datei-Liste laden …");
+        try
+        {
+            var slug = _settings.Current.GameSlug;
+            var files = await _api.GetFilesAsync(slug, row.Source.ModId);
+            var file = PickMainFile(files);
+            if (file is null)
+            {
+                _host.Notifications.Notify("Keine Main-Datei gefunden.", NotificationLevel.Warning);
+                return;
+            }
+            scope.Report(0, $"Download-URL holen ({file.FileName}) …");
+            var link = await _api.GetDownloadLinkAsync(slug, row.Source.ModId, file.FileId);
+            if (link is null)
+            {
+                _host.Notifications.Notify(
+                    "Nexus verweigert Download-URL — Premium-Status prüfen (Verify im Settings-Tab).",
+                    NotificationLevel.Error);
+                return;
+            }
+            using var http = _host.CreateHttpClient("nexus-download");
+            var progress = new Progress<double>(f => scope.Report(f, $"{file.FileName} · {(int)(f * 100)}%"));
+            var target = await _installer.DownloadPakAsync(http, link, file.FileName,
+                overwrite: false, progress);
+            _host.Notifications.Notify($"Heruntergeladen: {Path.GetFileName(target)}",
+                NotificationLevel.Success);
+            _downloadBus.RaiseDownloadsChanged(Path.GetFileName(target));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "Nexus-Download fehlgeschlagen für mod_id={Id}", row.Source.ModId);
+            _host.Notifications.Notify($"Download-Fehler: {ex.Message}", NotificationLevel.Error);
+        }
+    }
+
+    /// <summary>Wählt aus einer File-Liste den besten Kandidaten für Auto-
+    /// Download: (1) MAIN+primary, (2) irgendein MAIN, (3) erstes File.
+    /// Für Multi-File-Mods (verschiedene Varianten) müsste man einen
+    /// Auswahl-Dialog anbieten — später wenn nötig.</summary>
+    internal static NexusFileEntry? PickMainFile(IReadOnlyList<NexusFileEntry> files)
+    {
+        if (files.Count == 0) return null;
+        foreach (var f in files) if (f.IsMainAndPrimary) return f;
+        foreach (var f in files) if (f.IsMain) return f;
+        return files[0];
+    }
 }
 
 public sealed partial class NexusRow : ObservableObject

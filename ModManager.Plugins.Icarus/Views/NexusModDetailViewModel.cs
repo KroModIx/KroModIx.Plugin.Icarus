@@ -1,9 +1,11 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ModManager.PluginContracts;
+using ModManager.Plugins.Icarus.Services;
 using ModManager.Plugins.Icarus.Services.Nexus;
 using NLog;
 
@@ -26,16 +28,23 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
     private readonly string _detailUrl;
     private readonly NexusApiClient _api;
     private readonly NexusCategoryService _categories;
+    private readonly PakInstallService _installer;
+    private readonly DownloadEventBus _downloadBus;
     private readonly IHostServices _host;
 
-    public NexusModDetailViewModel(NexusRow row, string gameSlug,
-        NexusApiClient api, NexusCategoryService categories, IHostServices host)
+    public NexusModDetailViewModel(NexusRow row, string gameSlug, bool isPremium,
+        NexusApiClient api, NexusCategoryService categories,
+        PakInstallService installer, DownloadEventBus downloadBus,
+        IHostServices host)
     {
         _modId = row.Source.ModId;
         _gameSlug = gameSlug;
         _detailUrl = row.Source.DetailUrl(gameSlug);
         _api = api;
         _categories = categories;
+        _installer = installer;
+        _downloadBus = downloadBus;
+        IsPremium = isPremium;
         _host = host;
 
         // Vorbelegen aus der Row (der Katalog-Snapshot hat schon Fallback-Daten),
@@ -71,6 +80,11 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
     public bool HasSummary => !string.IsNullOrWhiteSpace(AiSummary);
 
     [ObservableProperty] private bool _summaryBusy;
+
+    /// <summary>Nexus-Premium-Flag aus dem Settings-Cache — bestimmt ob
+    /// der „⬇ Herunterladen"-Button im Footer enabled ist.</summary>
+    [ObservableProperty] private bool _isPremium;
+    [ObservableProperty] private bool _downloadBusy;
 
     private async Task LoadDetailAsync()
     {
@@ -113,6 +127,57 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenInBrowser() => _host.Shell.OpenExternalUrl(_detailUrl);
+
+    /// <summary>Premium-Direct-Download aus dem Detail-Dialog — analog
+    /// <c>NexusViewModel.DownloadRowAsync</c>. Nutzt dieselbe File-Auswahl-
+    /// Heuristik (MAIN+primary → MAIN → erstes). Nach Erfolg feuert
+    /// <see cref="DownloadEventBus.DownloadsChanged"/>.</summary>
+    [RelayCommand]
+    private async Task DownloadAsync()
+    {
+        if (!IsPremium)
+        {
+            _host.Notifications.Notify(
+                "Direct-Download braucht Nexus-Premium. Klick \"Auf Nexus öffnen\" für den Browser-Weg.",
+                NotificationLevel.Warning);
+            return;
+        }
+        DownloadBusy = true;
+        using var scope = _host.BeginProgress($"Nexus: {Title}");
+        scope.Report(0, "Datei-Liste laden …");
+        try
+        {
+            var files = await _api.GetFilesAsync(_gameSlug, _modId);
+            var file = NexusViewModel.PickMainFile(files);
+            if (file is null)
+            {
+                _host.Notifications.Notify("Keine Main-Datei gefunden.", NotificationLevel.Warning);
+                return;
+            }
+            scope.Report(0, $"Download-URL holen ({file.FileName}) …");
+            var link = await _api.GetDownloadLinkAsync(_gameSlug, _modId, file.FileId);
+            if (link is null)
+            {
+                _host.Notifications.Notify(
+                    "Nexus verweigert Download-URL — Premium-Status im Nexus-Settings-Tab prüfen.",
+                    NotificationLevel.Error);
+                return;
+            }
+            using var http = _host.CreateHttpClient("nexus-download");
+            var progress = new Progress<double>(f => scope.Report(f, $"{file.FileName} · {(int)(f * 100)}%"));
+            var target = await _installer.DownloadPakAsync(http, link, file.FileName,
+                overwrite: false, progress);
+            _host.Notifications.Notify($"Heruntergeladen: {Path.GetFileName(target)}",
+                NotificationLevel.Success);
+            _downloadBus.RaiseDownloadsChanged(Path.GetFileName(target));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "Nexus-Detail-Download fehlgeschlagen für mod_id={Id}", _modId);
+            _host.Notifications.Notify($"Download-Fehler: {ex.Message}", NotificationLevel.Error);
+        }
+        finally { DownloadBusy = false; }
+    }
 
     [RelayCommand]
     private async Task SummarizeAsync()

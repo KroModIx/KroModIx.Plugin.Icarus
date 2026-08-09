@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using NLog;
 
 namespace ModManager.Plugins.Icarus.Services;
@@ -161,6 +164,55 @@ public sealed class PakInstallService
         Log.Info("Icarus-Mod {State}: {Path} → {Target}",
             enabled ? "aktiviert" : "deaktiviert", current, target);
         return mod with { FilePath = target, FileName = Path.GetFileName(target), IsEnabled = enabled };
+    }
+
+    /// <summary>Lädt eine PAK-URL streamend in den Downloads-Ordner, mit
+    /// Progress-Bericht (Fraction 0..1). Kollision-Check: existiert die
+    /// Datei schon UND overwrite=false → InvalidOperationException. Datei
+    /// wird atomar über <c>.tmp</c>+<c>File.Move</c> geschrieben, damit ein
+    /// abgebrochener Download nicht als „fertig" im Ordner landet.</summary>
+    public async Task<string> DownloadPakAsync(HttpClient http, string url, string fileName,
+        bool overwrite, IProgress<double>? progress, CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(_downloadsDir);
+        // Nexus-URLs kommen manchmal mit Query-Strings oder ohne .pak-Extension
+        // im Path — Filename kommt vom Aufrufer (aus NexusFileEntry.FileName).
+        if (!fileName.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
+            fileName += ".pak";
+        var target = Path.Combine(_downloadsDir, fileName);
+        if (File.Exists(target) && !overwrite)
+            throw new InvalidOperationException($"Datei existiert schon: {fileName}");
+
+        var tmp = target + ".tmp";
+        if (File.Exists(tmp)) File.Delete(tmp);
+
+        using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+        var total = resp.Content.Headers.ContentLength ?? 0;
+
+        await using (var input = await resp.Content.ReadAsStreamAsync(ct))
+        await using (var output = File.Create(tmp))
+        {
+            var buf = new byte[64 * 1024];
+            long done = 0;
+            int read;
+            var lastReport = DateTime.UtcNow;
+            while ((read = await input.ReadAsync(buf, ct)) > 0)
+            {
+                await output.WriteAsync(buf.AsMemory(0, read), ct);
+                done += read;
+                // Progress höchstens 5×/Sekunde reporten — spart Dispatcher-Post-Flut.
+                if (total > 0 && DateTime.UtcNow - lastReport > TimeSpan.FromMilliseconds(200))
+                {
+                    progress?.Report((double)done / total);
+                    lastReport = DateTime.UtcNow;
+                }
+            }
+            progress?.Report(1.0);
+        }
+        File.Move(tmp, target, overwrite: true);
+        Log.Info("Icarus-Download fertig: {File} ({Bytes} bytes)", fileName, total);
+        return target;
     }
 
     public void DeleteDownload(string pakPath)
