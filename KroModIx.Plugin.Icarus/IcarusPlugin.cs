@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -9,17 +11,18 @@ using KroModIx.Plugin.Icarus.Views;
 
 namespace KroModIx.Plugin.Icarus;
 
-public sealed class IcarusPlugin : IGameModPlugin
+public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
 {
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.0.0",
+        Version: "1.7.0",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
             "(Workshop-Rows read-only). Nexus-Mods-Katalog mit Personal-API-Key. " +
-            "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look.");
+            "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look. " +
+            "v1.7.0: grüner ↑-Badge bei neuen Nexus-Einträgen (IUpdateNotifier).");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {
@@ -35,7 +38,9 @@ public sealed class IcarusPlugin : IGameModPlugin
     private NexusApiClient? _nexusApi;
     private NexusCatalogService? _nexusCatalog;
     private NexusCategoryService? _nexusCategories;
+    private NexusUpdateTracker? _updateTracker;
     private DownloadEventBus? _downloadBus;
+    private IReadOnlyList<DetectedGame> _activatedGames = Array.Empty<DetectedGame>();
     private readonly Dictionary<string, PakInstallService> _installers = new();
     private readonly Dictionary<string, PakBackupService> _backups = new();
     private readonly IcarusPathResolver _pathResolver = new();
@@ -50,7 +55,9 @@ public sealed class IcarusPlugin : IGameModPlugin
             () => _nexusSettings.GetApiKey());
         _nexusCatalog = new NexusCatalogService(_nexusApi, _nexusSettings, _paths);
         _nexusCategories = new NexusCategoryService(_nexusApi, _nexusSettings);
+        _updateTracker = new NexusUpdateTracker(_paths);
         _downloadBus = new DownloadEventBus();
+        _activatedGames = activatedGames;
 
         foreach (var game in activatedGames)
         {
@@ -91,6 +98,44 @@ public sealed class IcarusPlugin : IGameModPlugin
         _nexusApi?.Dispose();
         _host?.Logger.Info("Icarus shutdown");
         return Task.CompletedTask;
+    }
+
+    // ---- IUpdateNotifier (Contracts v1.7.0) ----
+
+    /// <summary>Lädt den Nexus-Katalog aus dem Cache (kein Netz-Refresh im
+    /// Hintergrund — der User pflegt den Katalog über den Nexus-Tab) und
+    /// zählt Einträge deren <see cref="NexusCatalogEntry.UpdatedUtc"/>
+    /// jünger als die persistierte Baseline in
+    /// <see cref="NexusUpdateTracker"/> ist. Kein API-Key gesetzt oder kein
+    /// Cache vorhanden → 0 (kein Badge). Beim allerersten Aufruf wird die
+    /// Baseline auf „jetzt" gesetzt — der User sieht sofort einen sauberen
+    /// Zustand statt „alle Katalog-Einträge sind neu".</summary>
+    public async Task<IReadOnlyList<GameUpdateInfo>> GetPendingUpdatesAsync(CancellationToken cancellationToken)
+    {
+        if (_nexusCatalog is null || _updateTracker is null || _activatedGames.Count == 0)
+            return Array.Empty<GameUpdateInfo>();
+
+        try
+        {
+            // forceRefresh=false: Cache-only, kein Blocking-Netz-Load im
+            // Hintergrund-Loop. Wenn kein Cache: LoadAsync gibt einen leeren
+            // Snapshot oder einen aus einer der drei API-Calls zurück —
+            // exceptions fangen wir.
+            var snapshot = await _nexusCatalog.LoadAsync(forceRefresh: false, cancellationToken);
+            var count = _updateTracker.CountNewSince(snapshot);
+            if (count <= 0) return Array.Empty<GameUpdateInfo>();
+
+            var summary = $"{count} neue Nexus-Mods seit deinem letzten Nexus-Tab-Besuch";
+            return _activatedGames
+                .Where(g => g.Target.SteamAppId is int)
+                .Select(g => new GameUpdateInfo(g.Target.SteamAppId!.Value, count, summary))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _host?.Logger.Debug(ex, "Icarus IUpdateNotifier fehlgeschlagen — 0 Updates");
+            return Array.Empty<GameUpdateInfo>();
+        }
     }
 
     private sealed class InstalledTab : IGameTabContribution
