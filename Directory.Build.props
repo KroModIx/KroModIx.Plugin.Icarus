@@ -7,7 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <Authors>Lars Oste</Authors>
-    <RepositoryUrl>https://github.com/Kroste/ModManager.Plugins.Icarus</RepositoryUrl>
+    <RepositoryUrl>https://github.com/Kroste/KroModIx.Plugin.Icarus</RepositoryUrl>
     <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
   <ItemGroup>

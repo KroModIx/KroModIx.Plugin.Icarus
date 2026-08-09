@@ -45,14 +45,14 @@ jobs:
       - name: Plugin-Bundle packen
         run: |
           mkdir -p bundle
-          cp ModManager.Plugins.Icarus/bin/Release/net10.0/ModManager.Plugins.Icarus.dll bundle/
-          cp ModManager.Plugins.Icarus/bin/Release/net10.0/plugin.json bundle/
+          cp KroModIx.Plugin.Icarus/bin/Release/net10.0/KroModIx.Plugin.Icarus.dll bundle/
+          cp KroModIx.Plugin.Icarus/bin/Release/net10.0/plugin.json bundle/
           cd bundle
-          zip -r "../ModManager.Plugins.Icarus-${{ steps.ver.outputs.v }}.zip" .
+          zip -r "../KroModIx.Plugin.Icarus-${{ steps.ver.outputs.v }}.zip" .
       - name: GitHub-Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v3
         with:
-          files: ModManager.Plugins.Icarus-*.zip
+          files: KroModIx.Plugin.Icarus-*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true

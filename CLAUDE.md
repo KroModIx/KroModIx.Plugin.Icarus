@@ -1,13 +1,13 @@
-# ModManager.Plugins.Icarus
+# KroModIx.Plugin.Icarus
 
 ## Grundlagen
 
-- **Was:** Icarus-Mod-Manager als Plugin für Kroste ModManager. Zielspiel:
+- **Was:** Icarus-Mod-Manager als Plugin für KroModIx. Zielspiel:
   Icarus (Steam App-ID 1149460, RocketWerkz).
-- **Stack:** .NET 10, `Kroste.ModManager.PluginContracts` als PackageReference.
-- **Repo:** `github.com/Kroste/ModManager.Plugins.Icarus`.
-- **Deploy-Ziel:** `~/.config/ModManager/plugins/kroste.icarus/` bzw.
-  `%APPDATA%\ModManager\plugins\kroste.icarus\`.
+- **Stack:** .NET 10, `KroModIx.Plugin.Contracts` als PackageReference.
+- **Repo:** `github.com/Kroste/KroModIx.Plugin.Icarus`.
+- **Deploy-Ziel:** `~/.config/KroModIx/plugins/kroste.icarus/` bzw.
+  `%APPDATA%\KroModIx\plugins\kroste.icarus\`.
 
 ## Aktueller Stand
 

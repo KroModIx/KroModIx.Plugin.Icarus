@@ -1,8 +1,8 @@
-# ModManager.Plugins.Icarus
+# KroModIx.Plugin.Icarus
 
-[![CI](https://github.com/Kroste/ModManager.Plugins.Icarus/actions/workflows/ci.yml/badge.svg)](https://github.com/Kroste/ModManager.Plugins.Icarus/actions/workflows/ci.yml)
+[![CI](https://github.com/Kroste/KroModIx.Plugin.Icarus/actions/workflows/ci.yml/badge.svg)](https://github.com/Kroste/KroModIx.Plugin.Icarus/actions/workflows/ci.yml)
 
-Icarus (RocketWerkz) Mod-Manager als Plugin für den [Kroste ModManager](https://github.com/Kroste/Mod-Manager).
+Icarus (RocketWerkz) Mod-Manager als Plugin für den [KroModIx](https://github.com/KroModIx/KroModIx).
 
 ## Ziel-Spiel
 
@@ -46,11 +46,11 @@ verschlüsselt gespeichert und niemals im Log ausgegeben.
 
 ## Installation
 
-Aus [Release](https://github.com/Kroste/ModManager.Plugins.Icarus/releases)
+Aus [Release](https://github.com/Kroste/KroModIx.Plugin.Icarus/releases)
 das ZIP entpacken nach:
 
-- **Linux:** `~/.config/ModManager/plugins/kroste.icarus/`
-- **Windows:** `%APPDATA%\ModManager\plugins\kroste.icarus\`
+- **Linux:** `~/.config/KroModIx/plugins/kroste.icarus/`
+- **Windows:** `%APPDATA%\KroModIx\plugins\kroste.icarus\`
 
 Ab Host v0.3 alternativ: 1-Klick-Install über die Install-Karte in der Sidebar.
 
