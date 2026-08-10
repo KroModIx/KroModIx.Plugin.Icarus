@@ -86,7 +86,8 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             || !_backups.TryGetValue(game.Target.GameId, out var backup))
             yield break;
 
-        yield return new InstalledTab(installer, backup, _paths, _downloadBus, _host);
+        yield return new InstalledTab(installer, backup, _paths, _downloadBus, _host,
+            _nexusApi, _nexusSettings, _nexusCategories);
         yield return new NexusTab(_nexusCatalog, _nexusSettings, _nexusApi, _nexusCategories,
             installer, _downloadBus, _paths, _host);
         yield return new DownloadsTab(installer, _downloadBus, _host,
@@ -146,16 +147,22 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         private readonly IcarusPaths _paths;
         private readonly DownloadEventBus _bus;
         private readonly IHostServices _host;
+        private readonly NexusApiClient _api;
+        private readonly NexusSettingsService _settings;
+        private readonly NexusCategoryService _categories;
         public InstalledTab(PakInstallService installer, PakBackupService backup,
-            IcarusPaths paths, DownloadEventBus bus, IHostServices host)
-        { _installer = installer; _backup = backup; _paths = paths; _bus = bus; _host = host; }
+            IcarusPaths paths, DownloadEventBus bus, IHostServices host,
+            NexusApiClient api, NexusSettingsService settings, NexusCategoryService categories)
+        { _installer = installer; _backup = backup; _paths = paths; _bus = bus; _host = host;
+          _api = api; _settings = settings; _categories = categories; }
         public string Id => "installed";
         public string Label => "Installiert";
         public string Icon => "\U0001F5FB"; // 🗻
         public int Order => 0;
         public bool IsVisible(DetectedGame game) => true;
         public Control CreateView(DetectedGame game, IHostServices host) =>
-            new InstalledPaksView { DataContext = new InstalledPaksViewModel(_installer, _backup, _paths, _bus, _host) };
+            new InstalledPaksView { DataContext = new InstalledPaksViewModel(
+                _installer, _backup, _paths, _bus, _host, _api, _settings, _categories) };
     }
 
     private sealed class NexusTab : IGameTabContribution

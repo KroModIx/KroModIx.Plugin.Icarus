@@ -4,11 +4,14 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services;
+using KroModIx.Plugin.Icarus.Services.Nexus;
 
 namespace KroModIx.Plugin.Icarus.Views;
 
@@ -24,19 +27,34 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private readonly IcarusPaths _paths;
     private readonly DownloadEventBus _downloadBus;
     private readonly IHostServices _host;
+    private readonly NexusApiClient? _nexusApi;
+    private readonly NexusSettingsService? _nexusSettings;
+    private readonly NexusCategoryService? _nexusCategories;
 
     private readonly List<PakRow> _allMods = new();
     private FileSystemWatcher? _manualWatcher;
     private FileSystemWatcher? _workshopWatcher;
 
+    /// <summary>Convenience-Ctor für Callsites die noch keine Nexus-Deps
+    /// injizieren (Tests, ältere Wirings). Ohne Nexus → nur Filenames,
+    /// keine Cover/Details.</summary>
     public InstalledPaksViewModel(PakInstallService installer, PakBackupService backup,
         IcarusPaths paths, DownloadEventBus downloadBus, IHostServices host)
+        : this(installer, backup, paths, downloadBus, host, null, null, null) { }
+
+    public InstalledPaksViewModel(PakInstallService installer, PakBackupService backup,
+        IcarusPaths paths, DownloadEventBus downloadBus, IHostServices host,
+        NexusApiClient? nexusApi, NexusSettingsService? nexusSettings,
+        NexusCategoryService? nexusCategories)
     {
         _installer = installer;
         _backup = backup;
         _paths = paths;
         _downloadBus = downloadBus;
         _host = host;
+        _nexusApi = nexusApi;
+        _nexusSettings = nexusSettings;
+        _nexusCategories = nexusCategories;
         ModsDir = installer.ModsDir;
         WorkshopDir = installer.WorkshopDir ?? "(kein Workshop-Ordner erkannt)";
         InitEvents();
@@ -146,7 +164,17 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                          .OrderBy(m => m.Source == PakModSource.Workshop) // Manual zuerst
                          .ThenByDescending(m => m.IsEnabled)
                          .ThenBy(m => m.FileName, StringComparer.CurrentCultureIgnoreCase))
-                _allMods.Add(new PakRow(m));
+            {
+                var row = new PakRow(m);
+                // Nur bei Manual-Rows den Nexus-Filename-Parser probieren —
+                // Workshop-Rows haben Steam-UGC-Naming und passen nie.
+                if (m.Source == PakModSource.Manual)
+                {
+                    row.NexusModId = NexusFileNameParser.TryExtractModId(m.FileName);
+                    row.ModName = NexusFileNameParser.TryExtractModName(m.FileName);
+                }
+                _allMods.Add(row);
+            }
 
             var manualCount = _allMods.Count(r => r.IsManual);
             var workshopCount = _allMods.Count(r => r.IsWorkshop);
@@ -161,6 +189,108 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             Summary = "Fehler beim Lesen der Mod-Ordner.";
         }
         ApplyFilter();
+
+        // Async-Enrichment im Hintergrund für Manual-Rows mit Nexus-Filename.
+        _ = EnrichRowsAsync(_allMods.Where(r => r.NexusModId is int).ToArray());
+    }
+
+    /// <summary>Iteriert über die Rows mit erkannter <see cref="PakRow.NexusModId"/>,
+    /// holt Detail via Nexus-API + Cover-Bild. Throttled: 250ms zwischen
+    /// Detail-Requests. Ohne Nexus-Client (Convenience-Ctor) macht die Methode nichts.</summary>
+    private async Task EnrichRowsAsync(PakRow[] rows)
+    {
+        if (_nexusApi is null || _nexusSettings is null) return;
+        if (!_nexusSettings.HasApiKey) return;
+
+        var slug = _nexusSettings.Current.GameSlug;
+        foreach (var row in rows)
+        {
+            if (row.NexusModId is not int modId) continue;
+            try
+            {
+                var detail = await _nexusApi.GetModDetailAsync(slug, modId);
+                if (detail is null) continue;
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    row.ModName = detail.Name;
+                    row.Author = detail.Author;
+                    row.Summary = detail.Summary;
+                    row.Version = detail.Version;
+                });
+                if (!string.IsNullOrEmpty(detail.PictureUrl))
+                    await LoadCoverAsync(row, detail.PictureUrl, modId);
+            }
+            catch (Exception ex)
+            {
+                _host.Logger.Debug(ex, "Installed-Enrichment fehlgeschlagen für mod_id={Id}", modId);
+            }
+            try { await Task.Delay(250); } catch { break; }
+        }
+    }
+
+    private async Task LoadCoverAsync(PakRow row, string pictureUrl, int modId)
+    {
+        try
+        {
+            var localPath = Path.Combine(_paths.NexusCoverDir, $"{modId}.jpg");
+            if (!File.Exists(localPath))
+            {
+                using var http = _host.CreateHttpClient("nexus-covers");
+                var bytes = await http.GetByteArrayAsync(pictureUrl);
+                Directory.CreateDirectory(_paths.NexusCoverDir);
+                await File.WriteAllBytesAsync(localPath, bytes);
+            }
+            var bmp = await Task.Run(() =>
+            {
+                using var s = File.OpenRead(localPath);
+                return new Bitmap(s);
+            });
+            await Dispatcher.UIThread.InvokeAsync(() => row.Cover = bmp);
+        }
+        catch (Exception ex)
+        {
+            _host.Logger.Debug(ex, "Installed-Cover-Load fehlgeschlagen für {Id}", modId);
+        }
+    }
+
+    /// <summary>Öffnet den Nexus-Mod-Detail-Dialog für die Row. Nur möglich
+    /// wenn die Row aus einem Nexus-Download stammt (Filename-Muster matcht)
+    /// UND die Nexus-Deps gewired sind.</summary>
+    [RelayCommand]
+    private void ShowDetail(PakRow? row)
+    {
+        if (row is null) return;
+        if (_nexusApi is null || _nexusSettings is null || _nexusCategories is null)
+        {
+            _host.Notifications.Notify(
+                "Nexus-Detail nicht verfügbar (Nexus-Client fehlt in dieser Session).",
+                NotificationLevel.Warning);
+            return;
+        }
+        if (row.NexusModId is not int modId)
+        {
+            _host.Notifications.Notify(
+                row.IsWorkshop
+                    ? "Workshop-Mods haben keine Nexus-Details."
+                    : $"Keine Nexus-Mod-Id im Dateinamen erkennbar: {row.FileName}",
+                NotificationLevel.Info);
+            return;
+        }
+
+        var vm = new NexusModDetailViewModel(
+            modId,
+            _nexusSettings.Current.GameSlug,
+            _nexusSettings.Current.IsPremium,
+            _nexusApi, _nexusCategories, _installer, _downloadBus, _host,
+            initialTitle: row.ModName ?? row.FileName,
+            initialAuthor: row.Author,
+            initialSummary: row.Summary,
+            initialVersion: row.Version,
+            initialCover: row.Cover);
+        var window = new NexusModDetailWindow { DataContext = vm };
+        var owner = (Avalonia.Application.Current?.ApplicationLifetime
+            as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (owner is not null) window.Show(owner); else window.Show();
     }
 
     private void ApplyFilter()
@@ -445,6 +575,36 @@ public sealed partial class PakRow : ObservableObject
     public string SourceBadge => Source.Source == PakModSource.Workshop
         ? "⚙ WORKSHOP"
         : "";
+
+    /// <summary>Aus dem Filename extrahiert (nur bei Manual-Mods).
+    /// null wenn nicht dem Nexus-Muster entspricht (Workshop, User-Copy).</summary>
+    public int? NexusModId { get; set; }
+
+    /// <summary>Mod-Metadaten vom Nexus-Detail-Fetch (async nach dem Refresh
+    /// gefüllt). Initial aus dem Filename abgeleitet als Fallback.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayName))]
+    private string? _modName;
+
+    [ObservableProperty] private string? _author;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSummary))]
+    private string? _summary;
+
+    [ObservableProperty] private string? _version;
+
+    /// <summary>Cover-Bild aus dem Nexus-CDN (via NexusCoverDir-Cache).
+    /// null wenn kein Bild vorhanden oder Load fehlgeschlagen — die View
+    /// zeigt dann einen Emoji-Platzhalter.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCover))]
+    private Bitmap? _cover;
+
+    public bool HasCover => Cover is not null;
+    public bool HasSummary => !string.IsNullOrWhiteSpace(Summary);
+    public bool CanShowDetail => NexusModId is int;
+    public string DisplayName => !string.IsNullOrWhiteSpace(ModName) ? ModName! : FileName;
 
     private static string FormatBytes(long bytes)
     {

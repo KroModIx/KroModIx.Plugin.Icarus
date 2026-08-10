@@ -183,30 +183,52 @@ public sealed class InstalledPaksView : UserControl
 
         list.ItemTemplate = new FuncDataTemplate<PakRow>((row, _) => row is null ? null : BuildRowTemplate(),
             supportsRecycling: true);
+        // Doppelklick auf Row öffnet Detail-Dialog (analog Nexus- + Downloads-Tab).
+        list.DoubleTapped += (_, _) =>
+        {
+            if (DataContext is InstalledPaksViewModel vm && list.SelectedItem is PakRow row)
+                vm.ShowDetailCommand.Execute(row);
+        };
         return list;
     }
 
     private static Control BuildRowTemplate()
     {
-        // Icon-Frame links (kein Cover — Icarus-PAKs haben keine Preview-Bilder,
-        // wir zeigen ein passendes Emoji je Source).
-        var iconFrame = new Border
+        // Cover-Frame links — Nexus-CDN liefert 400×225-Landscape, gleiche
+        // Size wie Nexus-Tab + Downloads-Tab (140×90). Fallback: 🗻-Emoji für
+        // Workshop-Rows, 📦 für Manual-Rows ohne Nexus-Cover.
+        var coverFrame = new Border
         {
-            Width = 70, Height = 70,
+            Width = 140, Height = 90,
             CornerRadius = new CornerRadius(6),
+            ClipToBounds = true,
             [!Border.BackgroundProperty] = new DynamicResourceExtension("KrosteSurfaceBrush"),
         };
-        var icon = new TextBlock
+        var coverPanel = new Panel();
+        var coverFallback = new TextBlock
         {
-            Text = "🗻",
             FontSize = 32,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        icon.Classes.Add("muted");
-        iconFrame.Child = icon;
+        coverFallback.Classes.Add("muted");
+        // Fallback-Emoji abhängig von Source: 🗻 (Icarus) für Workshop, 📦 für Manual.
+        coverFallback.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.IsWorkshop))
+        {
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, string>(v => v ? "🗻" : "📦"),
+        });
+        coverPanel.Children.Add(coverFallback);
+        var coverImage = new Image
+        {
+            Stretch = Stretch.UniformToFill,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        coverImage.Bind(Image.SourceProperty, new Binding(nameof(PakRow.Cover)));
+        coverPanel.Children.Add(coverImage);
+        coverFrame.Child = coverPanel;
 
-        // Titel-Zeile: Dateiname + Zustand + Source-Badge
+        // Titel-Zeile: DisplayName (Mod-Name wenn vom Nexus da, sonst FileName) + Badges
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var title = new TextBlock
         {
@@ -214,10 +236,10 @@ public sealed class InstalledPaksView : UserControl
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        title.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.FileName)));
+        title.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.DisplayName)));
         titleRow.Children.Add(title);
 
-        // aktiv-Badge — nur bei manuellen aktiven Mods (Workshop hat sein eigenes Badge)
+        // aktiv-Badge — nur bei manuellen aktiven Mods
         var enabledBadge = MakeBadge("aktiv", "KrosteSuccessBrush", Brushes.White);
         enabledBadge.Bind(Border.IsVisibleProperty, new MultiBinding
         {
@@ -235,28 +257,62 @@ public sealed class InstalledPaksView : UserControl
         workshopBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop)));
         titleRow.Children.Add(workshopBadge);
 
-        // Meta
+        // Meta-Zeile: Author · Version · Size · State (analog Downloads-Tab)
         var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 2, 0, 0) };
-        var state = new TextBlock(); state.Classes.Add("muted");
-        state.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.StateLabel)));
-        meta.Children.Add(state);
-        var sep = new TextBlock { Text = "·" }; sep.Classes.Add("muted"); meta.Children.Add(sep);
-        var size = new TextBlock(); size.Classes.Add("muted");
-        size.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.Size)));
-        meta.Children.Add(size);
+        var authorTb = new TextBlock(); authorTb.Classes.Add("muted");
+        authorTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.Author)));
+        var sep1 = new TextBlock { Text = "·" }; sep1.Classes.Add("muted");
+        var versionTb = new TextBlock(); versionTb.Classes.Add("muted");
+        versionTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.Version)) { StringFormat = "v{0}" });
+        var sep2 = new TextBlock { Text = "·" }; sep2.Classes.Add("muted");
+        var sizeTb = new TextBlock(); sizeTb.Classes.Add("muted");
+        sizeTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.Size)));
+        var sep3 = new TextBlock { Text = "·" }; sep3.Classes.Add("muted");
+        var stateTb = new TextBlock(); stateTb.Classes.Add("muted");
+        stateTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.StateLabel)));
+        meta.Children.Add(authorTb); meta.Children.Add(sep1);
+        meta.Children.Add(versionTb); meta.Children.Add(sep2);
+        meta.Children.Add(sizeTb); meta.Children.Add(sep3);
+        meta.Children.Add(stateTb);
+
+        // Summary — nur sichtbar wenn Nexus-Detail-Fetch etwas geliefert hat.
+        var summaryTb = new TextBlock
+        {
+            Margin = new Thickness(0, 4, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 40,
+        };
+        summaryTb.Classes.Add("secondary");
+        summaryTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.Summary)));
+        summaryTb.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(PakRow.HasSummary)));
+
+        // Ursprünglicher Datei-Name in kleiner Muted-Zeile — für Sanity/Debug
+        // (analog Downloads-Tab). Zeigt was tatsächlich im mods-Ordner liegt.
+        var fileNameTb = new TextBlock
+        {
+            FontSize = 10, Margin = new Thickness(0, 4, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        fileNameTb.Classes.Add("muted");
+        fileNameTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.FileName)));
 
         var textStack = new StackPanel
         {
-            Spacing = 4,
+            Spacing = 2,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(14, 0, 0, 0),
-            Children = { titleRow, meta },
+            Children = { titleRow, meta, summaryTb, fileNameTb },
         };
 
-        // Row-Aktionen rechts (nur bei Manual sinnvoll)
+        // Row-Aktionen rechts
         var toggleBtn = new Button { Content = "⏻  (De-)Aktivieren" };
         BindRowCommand(toggleBtn, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
         toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsManual)));
+
+        var detailBtn = new Button { Content = "🔍  Details" };
+        BindRowCommand(detailBtn, nameof(InstalledPaksViewModel.ShowDetailCommand));
+        detailBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.CanShowDetail)));
+        ToolTip.SetTip(detailBtn, "Nexus-Mod-Detail öffnen (nur bei Nexus-Downloads mit erkennbarer Mod-Id)");
 
         var uninstallBtn = new Button { Content = "🗑  Deinstallieren" };
         uninstallBtn.Classes.Add("danger");
@@ -276,14 +332,14 @@ public sealed class InstalledPaksView : UserControl
         {
             Spacing = 6,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { toggleBtn, uninstallBtn, workshopHint },
+            Children = { toggleBtn, detailBtn, uninstallBtn, workshopHint },
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-        Grid.SetColumn(iconFrame, 0);
+        Grid.SetColumn(coverFrame, 0);
         Grid.SetColumn(textStack, 1);
         Grid.SetColumn(actions, 2);
-        grid.Children.Add(iconFrame);
+        grid.Children.Add(coverFrame);
         grid.Children.Add(textStack);
         grid.Children.Add(actions);
 
@@ -297,9 +353,12 @@ public sealed class InstalledPaksView : UserControl
         var ctxMenu = new ContextMenu();
         var miToggle = new MenuItem { Header = "⏻  (De-)Aktivieren" };
         BindRowCommand(miToggle, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
+        var miDetail = new MenuItem { Header = "🔍  Details" };
+        BindRowCommand(miDetail, nameof(InstalledPaksViewModel.ShowDetailCommand));
         var miUninstall = new MenuItem { Header = "🗑  Deinstallieren" };
         BindRowCommand(miUninstall, nameof(InstalledPaksViewModel.UninstallRowCommand));
         ctxMenu.Items.Add(miToggle);
+        ctxMenu.Items.Add(miDetail);
         ctxMenu.Items.Add(new Separator());
         ctxMenu.Items.Add(miUninstall);
         card.ContextMenu = ctxMenu;
