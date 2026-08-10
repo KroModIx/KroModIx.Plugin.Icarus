@@ -62,41 +62,83 @@ public sealed class DownloadsView : UserControl
 
     private static Control BuildRowTemplate()
     {
-        var iconFrame = new Border
+        // Cover: gleiche 140×90-Landscape-Karte wie im Nexus-Tab (Nexus-CDN
+        // liefert die Bilder in dem Format). Fallback: 📦-Emoji auf grauem
+        // Grund wenn kein Cover geladen ist oder der Filename nicht dem
+        // Nexus-Muster entspricht.
+        var coverFrame = new Border
         {
-            Width = 70, Height = 70,
+            Width = 140, Height = 90,
             CornerRadius = new CornerRadius(6),
+            ClipToBounds = true,
             [!Border.BackgroundProperty] = new DynamicResourceExtension("KrosteSurfaceBrush"),
         };
-        var icon = new TextBlock
+        var coverPanel = new Panel();
+        var coverFallback = new TextBlock
         {
             Text = "📦", FontSize = 32,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        icon.Classes.Add("muted");
-        iconFrame.Child = icon;
+        coverFallback.Classes.Add("muted");
+        coverPanel.Children.Add(coverFallback);
+        var coverImage = new Image
+        {
+            Stretch = Stretch.UniformToFill,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        coverImage.Bind(Image.SourceProperty, new Binding(nameof(DownloadRow.Cover)));
+        coverPanel.Children.Add(coverImage);
+        coverFrame.Child = coverPanel;
 
+        // Title = ModName wenn schon vom Nexus-Detail-Fetch da, sonst FileName
+        // als Fallback (via DownloadRow.DisplayName).
         var title = new TextBlock
         {
             FontWeight = FontWeight.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        title.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.FileName)));
+        title.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.DisplayName)));
 
+        // Meta-Zeile: Author · Version · Size · Datum
         var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 2, 0, 0) };
+        var authorTb = new TextBlock(); authorTb.Classes.Add("muted");
+        authorTb.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.Author)));
+        var sep1 = new TextBlock { Text = "·" }; sep1.Classes.Add("muted");
+        var versionTb = new TextBlock(); versionTb.Classes.Add("muted");
+        versionTb.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.Version)) { StringFormat = "v{0}" });
+        var sep2 = new TextBlock { Text = "·" }; sep2.Classes.Add("muted");
         var size = new TextBlock(); size.Classes.Add("muted");
         size.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.Size)));
-        var sep = new TextBlock { Text = "·" }; sep.Classes.Add("muted");
+        var sep3 = new TextBlock { Text = "·" }; sep3.Classes.Add("muted");
         var dl = new TextBlock(); dl.Classes.Add("muted");
         dl.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.DownloadedText)));
-        meta.Children.Add(size); meta.Children.Add(sep); meta.Children.Add(dl);
+        meta.Children.Add(authorTb); meta.Children.Add(sep1);
+        meta.Children.Add(versionTb); meta.Children.Add(sep2);
+        meta.Children.Add(size); meta.Children.Add(sep3); meta.Children.Add(dl);
+
+        // Summary: 2 Zeilen, wird nur eingeblendet wenn Nexus-Detail-Fetch etwas geliefert hat.
+        var summaryTb = new TextBlock
+        {
+            Margin = new Thickness(0, 4, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 40,
+        };
+        summaryTb.Classes.Add("secondary");
+        summaryTb.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.Summary)));
+        summaryTb.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(DownloadRow.HasSummary)));
+
+        // Ursprünglicher Datei-Name in kleiner Muted-Zeile — für Sanity/Debug.
+        var fileNameTb = new TextBlock { FontSize = 10, Margin = new Thickness(0, 4, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+        fileNameTb.Classes.Add("muted");
+        fileNameTb.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.FileName)));
 
         var textStack = new StackPanel
         {
-            Spacing = 4, VerticalAlignment = VerticalAlignment.Center,
+            Spacing = 2, VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(14, 0, 0, 0),
-            Children = { title, meta },
+            Children = { title, meta, summaryTb, fileNameTb },
         };
 
         var installBtn = new Button { Content = "📥  Installieren" };
@@ -114,10 +156,10 @@ public sealed class DownloadsView : UserControl
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-        Grid.SetColumn(iconFrame, 0);
+        Grid.SetColumn(coverFrame, 0);
         Grid.SetColumn(textStack, 1);
         Grid.SetColumn(actions, 2);
-        grid.Children.Add(iconFrame);
+        grid.Children.Add(coverFrame);
         grid.Children.Add(textStack);
         grid.Children.Add(actions);
 
