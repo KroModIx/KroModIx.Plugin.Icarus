@@ -60,6 +60,22 @@ public sealed class NexusView : UserControl
         // Toolbar
         var refreshBtn = new Button { Content = "↺  Aktualisieren" };
         refreshBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusViewModel.RefreshCommand)));
+
+        // Vollen Katalog laden: nutzt updated.json?period=1m + Detail-Batch.
+        // Explizit als Button damit der User weiß dass es Rate-Limit-Kontingent
+        // kostet — Free-User kommen mit 250/h nicht immer durch alle 200+ Mods.
+        var loadExtendedBtn = new Button { Name = "NexusLoadExtendedButton", Content = "📚  Vollen Katalog laden" };
+        loadExtendedBtn.Bind(Button.CommandProperty,
+            new Binding(nameof(NexusViewModel.LoadExtendedCommand)));
+        loadExtendedBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(NexusViewModel.IsExtendedLoading))
+        {
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
+        });
+        ToolTip.SetTip(loadExtendedBtn,
+            "Erweitert den Katalog um alle Mods aus updated.json?period=1m " +
+            "(Detail-für-Detail, throttled). Kostet API-Rate-Limit-Kontingent " +
+            "— Premium-User 2500/h, Free-User 250/h.");
+
         var openDownloadsBtn = new Button { Content = "📂  Downloads-Ordner" };
         openDownloadsBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusViewModel.OpenDownloadsFolderCommand)));
 
@@ -72,19 +88,42 @@ public sealed class NexusView : UserControl
 
         var toolbar = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"),
+            ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*"),
             Margin = new Thickness(0, 0, 0, 10),
         };
         Grid.SetColumn(refreshBtn, 0);
-        Grid.SetColumn(openDownloadsBtn, 1);
-        Grid.SetColumn(searchBox, 2);
+        Grid.SetColumn(loadExtendedBtn, 1);
+        Grid.SetColumn(openDownloadsBtn, 2);
+        Grid.SetColumn(searchBox, 3);
         refreshBtn.Margin = new Thickness(0, 0, 6, 0);
+        loadExtendedBtn.Margin = new Thickness(0, 0, 6, 0);
         openDownloadsBtn.Margin = new Thickness(0, 0, 12, 0);
         toolbar.Children.Add(refreshBtn);
+        toolbar.Children.Add(loadExtendedBtn);
         toolbar.Children.Add(openDownloadsBtn);
         toolbar.Children.Add(searchBox);
         DockPanel.SetDock(toolbar, Dock.Top);
         catalogPanel.Children.Add(toolbar);
+
+        // Progress-Bar für den Extended-Load — nur sichtbar wenn IsExtendedLoading.
+        var progressPanel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 0, 8) };
+        progressPanel.Bind(StackPanel.IsVisibleProperty,
+            new Binding(nameof(NexusViewModel.IsExtendedLoading)));
+        var progressBar = new ProgressBar
+        {
+            Height = 6,
+            Minimum = 0, Maximum = 1,
+        };
+        progressBar.Bind(ProgressBar.ValueProperty,
+            new Binding(nameof(NexusViewModel.ExtendedFraction)) { FallbackValue = 0 });
+        var progressText = new TextBlock { FontSize = 11 };
+        progressText.Classes.Add("muted");
+        progressText.Bind(TextBlock.TextProperty,
+            new Binding(nameof(NexusViewModel.ExtendedProgressText)));
+        progressPanel.Children.Add(progressBar);
+        progressPanel.Children.Add(progressText);
+        DockPanel.SetDock(progressPanel, Dock.Top);
+        catalogPanel.Children.Add(progressPanel);
 
         // Status + Busy-Anzeige unten
         var status = new TextBlock { Margin = new Thickness(0, 10, 0, 0) };

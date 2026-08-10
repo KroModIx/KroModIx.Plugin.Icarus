@@ -65,6 +65,15 @@ public sealed partial class NexusViewModel : ObservableObject
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _needsApiKey;
 
+    // Vollkatalog-Fetch: Progress unter der Status-Zeile
+    [ObservableProperty] private bool _isExtendedLoading;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasExtendedProgress))]
+    private double? _extendedFraction;
+    [ObservableProperty] private string _extendedProgressText = "";
+
+    public bool HasExtendedProgress => IsExtendedLoading;
+
     partial void OnSearchTextChanged(string value) => ApplyFilter();
 
     private async Task InitializeAsync()
@@ -86,7 +95,7 @@ public sealed partial class NexusViewModel : ObservableObject
             var snap = await _catalog.LoadAsync(forceRefresh);
             _all = snap.Entries.ToList();
             var ageH = (int)(DateTime.UtcNow - snap.SavedUtc).TotalHours;
-            Status = $"{snap.Entries.Count} Mods (Cache-Alter: {ageH} h)";
+            Status = $"{snap.Entries.Count} Mods (Cache-Alter: {ageH} h) — Extended-Load läuft im Hintergrund …";
             ApplyFilter();
 
             // Update-Badge auf der Icarus-Kachel zurücksetzen: der User hat
@@ -94,6 +103,14 @@ public sealed partial class NexusViewModel : ObservableObject
             // nächsten Tick (30min oder bei plugin.Loaded-Refresh) den
             // Notifier neu ab und findet dann 0 neue Einträge → Badge weg.
             _updateTracker.MarkSeen();
+
+            // Extended-Load automatisch triggern (wenn nicht schon läuft und
+            // Basis-Load klein war). Läuft im Hintergrund mit Progress-Bar —
+            // die Nexus-API deckt in latest_added/updated/trending nur ca. 20
+            // Einträge ab, die volle Icarus-Community (216 Mods) kommt erst
+            // via updated.json?period=1m + Detail-Fetch.
+            if (!IsExtendedLoading && _all.Count < 100)
+                _ = LoadExtendedAsync();
         }
         catch (Exception ex)
         {
@@ -101,6 +118,46 @@ public sealed partial class NexusViewModel : ObservableObject
             Status = $"Fehler beim Laden: {ex.Message}";
         }
         finally { IsBusy = false; }
+    }
+
+    /// <summary>Cache-Warmup: fetcht zusätzlich zu den 3 Top-Listen alle
+    /// ModIds die im letzten Monat aktualisiert wurden (via updated.json)
+    /// und lädt Detail-für-Detail nach. Rate-Limit-schonend (300ms Delay
+    /// zwischen Requests) — dauert bei Icarus mit ~200 zusätzlichen Mods
+    /// etwa 1 Minute. Progress in ExtendedFraction/ExtendedProgressText.</summary>
+    [RelayCommand]
+    private async Task LoadExtendedAsync()
+    {
+        if (IsExtendedLoading) return;
+        IsExtendedLoading = true;
+        ExtendedFraction = 0;
+        ExtendedProgressText = "Extended-Katalog: Baseline via updated.json?period=1m …";
+
+        try
+        {
+            var snap = await _catalog.LoadExtendedAsync(
+                forceRefresh: false,
+                onProgress: (done, total) => Dispatcher.UIThread.Post(() =>
+                {
+                    ExtendedFraction = total > 0 ? (double)done / total : null;
+                    ExtendedProgressText = $"Detail {done}/{total} …";
+                }));
+
+            _all = snap.Entries.ToList();
+            Status = $"{snap.Entries.Count} Mods im Katalog (vollständig).";
+            ApplyFilter();
+            _updateTracker.MarkSeen();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "Extended-Katalog-Load fehlgeschlagen");
+            Status = $"Extended-Load fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            IsExtendedLoading = false;
+            ExtendedProgressText = "";
+        }
     }
 
     private System.Collections.Generic.List<NexusCatalogEntry> _all = new();

@@ -122,6 +122,40 @@ public sealed class NexusApiClient : IDisposable
         return result;
     }
 
+    /// <summary>Liste aller <c>mod_id</c>s die im angegebenen Zeitraum
+    /// aktualisiert wurden — der Nexus-Endpoint gibt nur (mod_id, latest_file_update)
+    /// zurück, keine Meta. Für vollen Katalog-Warmup: diese IDs enumerieren
+    /// und pro ID <see cref="GetModDetailAsync"/> aufrufen.
+    ///
+    /// <para><paramref name="period"/> muss <c>1d</c>, <c>1w</c> oder <c>1m</c>
+    /// sein — das sind die einzigen Werte die Nexus akzeptiert. Für Icarus
+    /// (216 Mods gesamt, wenig Neu-Uploads) deckt <c>1m</c> praktisch die
+    /// gesamte aktive Community ab.</para></summary>
+    public async Task<IReadOnlyList<int>> GetUpdatedModIdsAsync(
+        string gameSlug, string period, CancellationToken ct = default)
+    {
+        var key = _apiKeyProvider();
+        if (string.IsNullOrEmpty(key)) throw new InvalidOperationException(
+            "Nexus-API-Key fehlt — bitte im Nexus-Settings-Tab eintragen.");
+        if (period is not ("1d" or "1w" or "1m"))
+            throw new ArgumentException("period muss 1d | 1w | 1m sein", nameof(period));
+
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            $"v1/games/{gameSlug}/mods/updated.json?period={period}");
+        req.Headers.Add("apikey", key);
+        using var resp = await _http.SendAsync(req, ct);
+        LogRateLimit(resp);
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var list = JsonSerializer.Deserialize<List<NexusUpdatedEntry>>(body, JsonOpts) ?? new();
+        return list.Select(e => e.ModId).Distinct().ToList();
+    }
+
+    private sealed class NexusUpdatedEntry
+    {
+        [JsonPropertyName("mod_id")] public int ModId { get; set; }
+    }
+
     /// <summary>Volles Mod-Detail (Beschreibung, Downloads, Kategorie-ID, …)
     /// via <c>GET /v1/games/{slug}/mods/{id}.json</c>. Ein Extra-API-Call
     /// pro Detail-Öffnung — nutzt einen der 2500/h Personal-Rate-Limit-Slots.</summary>
