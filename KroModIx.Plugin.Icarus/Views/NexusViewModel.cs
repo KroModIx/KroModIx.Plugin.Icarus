@@ -32,6 +32,7 @@ public sealed partial class NexusViewModel : ObservableObject
     private readonly DownloadEventBus _downloadBus;
     private readonly IcarusPaths _paths;
     private readonly IHostServices _host;
+    private readonly NexusUpdateTracker _updateTracker;
 
     public NexusViewModel(NexusCatalogService catalog, NexusSettingsService settings,
         NexusApiClient api, NexusCategoryService categories,
@@ -46,6 +47,7 @@ public sealed partial class NexusViewModel : ObservableObject
         _downloadBus = downloadBus;
         _paths = paths;
         _host = host;
+        _updateTracker = new NexusUpdateTracker(paths);
         IsPremium = _settings.Current.IsPremium;
         _ = InitializeAsync();
     }
@@ -86,6 +88,12 @@ public sealed partial class NexusViewModel : ObservableObject
             var ageH = (int)(DateTime.UtcNow - snap.SavedUtc).TotalHours;
             Status = $"{snap.Entries.Count} Mods (Cache-Alter: {ageH} h)";
             ApplyFilter();
+
+            // Update-Badge auf der Icarus-Kachel zurücksetzen: der User hat
+            // den Katalog jetzt gesehen. GameUpdateBadgeService fragt beim
+            // nächsten Tick (30min oder bei plugin.Loaded-Refresh) den
+            // Notifier neu ab und findet dann 0 neue Einträge → Badge weg.
+            _updateTracker.MarkSeen();
         }
         catch (Exception ex)
         {
