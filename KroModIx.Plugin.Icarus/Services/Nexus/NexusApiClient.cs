@@ -114,9 +114,9 @@ public sealed class NexusApiClient : IDisposable
                 Category: "", // nexus-api liefert nur category_id, kein Name — wäre extra call
                 Version: m.Version ?? "",
                 PictureUrl: m.PictureUrl ?? "",
-                UpdatedUtc: FromUnixSeconds(m.UpdatedTimestamp),
+                UpdatedUtc: FromUnixSeconds(m.UpdatedTimestamp ?? 0),
                 Downloads: 0, // nur in /mods/{id}.json enthalten, spart hier den Extra-Call
-                Endorsements: m.EndorsementCount,
+                Endorsements: m.EndorsementCount ?? 0,
                 Available: m.Available));
         }
         return result;
@@ -188,9 +188,9 @@ public sealed class NexusApiClient : IDisposable
             Version: m.Version ?? "",
             PictureUrl: m.PictureUrl ?? "",
             CategoryId: m.CategoryId,
-            CreatedUtc: FromUnixSeconds(m.CreatedTimestamp),
-            UpdatedUtc: FromUnixSeconds(m.UpdatedTimestamp),
-            EndorsementCount: m.EndorsementCount,
+            CreatedUtc: FromUnixSeconds(m.CreatedTimestamp ?? 0),
+            UpdatedUtc: FromUnixSeconds(m.UpdatedTimestamp ?? 0),
+            EndorsementCount: m.EndorsementCount ?? 0,
             ContainsAdultContent: m.ContainsAdultContent,
             Available: m.Available,
             DomainName: m.DomainName ?? gameSlug);
@@ -231,8 +231,8 @@ public sealed class NexusApiClient : IDisposable
                 CategoryId: f.CategoryId,
                 CategoryName: f.CategoryName ?? "",
                 IsPrimary: f.IsPrimary,
-                SizeInBytes: f.SizeInBytes,
-                UploadedUtc: FromUnixSeconds(f.UploadedTimestamp)));
+                SizeInBytes: f.SizeInBytes ?? 0,
+                UploadedUtc: FromUnixSeconds(f.UploadedTimestamp ?? 0)));
         }
         return result;
     }
@@ -325,8 +325,11 @@ public sealed class NexusApiClient : IDisposable
         public string? PictureUrl { get; set; }
         public string? Author { get; set; }
         public NexusModUser? User { get; set; }
-        [JsonPropertyName("updated_timestamp")] public long UpdatedTimestamp { get; set; }
-        [JsonPropertyName("endorsement_count")] public long EndorsementCount { get; set; }
+        // Timestamps + Counts nullable, Nexus sendet gelegentlich null bei
+        // sehr alten oder frisch angelegten Mods — sonst wirft der Deserializer
+        // und der ganze Katalog-Load bricht ab.
+        [JsonPropertyName("updated_timestamp")] public long? UpdatedTimestamp { get; set; }
+        [JsonPropertyName("endorsement_count")] public long? EndorsementCount { get; set; }
         public bool Available { get; set; } = true;
     }
 
@@ -349,9 +352,10 @@ public sealed class NexusApiClient : IDisposable
         public string? Author { get; set; }
         public NexusModUser? User { get; set; }
         [JsonPropertyName("category_id")] public int CategoryId { get; set; }
-        [JsonPropertyName("created_timestamp")] public long CreatedTimestamp { get; set; }
-        [JsonPropertyName("updated_timestamp")] public long UpdatedTimestamp { get; set; }
-        [JsonPropertyName("endorsement_count")] public long EndorsementCount { get; set; }
+        // Timestamps + Counts nullable — siehe NexusMod.
+        [JsonPropertyName("created_timestamp")] public long? CreatedTimestamp { get; set; }
+        [JsonPropertyName("updated_timestamp")] public long? UpdatedTimestamp { get; set; }
+        [JsonPropertyName("endorsement_count")] public long? EndorsementCount { get; set; }
         [JsonPropertyName("contains_adult_content")] public bool ContainsAdultContent { get; set; }
         public bool Available { get; set; } = true;
         [JsonPropertyName("domain_name")] public string? DomainName { get; set; }
@@ -389,8 +393,14 @@ public sealed class NexusApiClient : IDisposable
         [JsonPropertyName("category_id")] public int CategoryId { get; set; }
         [JsonPropertyName("category_name")] public string? CategoryName { get; set; }
         [JsonPropertyName("is_primary")] public bool IsPrimary { get; set; }
-        [JsonPropertyName("size_in_bytes")] public long SizeInBytes { get; set; }
-        [JsonPropertyName("uploaded_timestamp")] public long UploadedTimestamp { get; set; }
+        /// <summary>Nullable weil Nexus für einzelne (typischerweise sehr alte
+        /// oder gelöschte) Files null oder gar nicht setzt. Ohne nullable
+        /// wirft der Deserializer bei null einen JsonException und der ganze
+        /// Files-Load für den Mod bricht ab — der User sieht dann einen
+        /// Download-Fehler wie „The JSON value could not be converted to
+        /// System.Int64. Path: $.files[0].size_in_bytes".</summary>
+        [JsonPropertyName("size_in_bytes")] public long? SizeInBytes { get; set; }
+        [JsonPropertyName("uploaded_timestamp")] public long? UploadedTimestamp { get; set; }
     }
 
     private sealed class NexusDownloadLink
