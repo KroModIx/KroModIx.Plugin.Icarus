@@ -42,11 +42,23 @@ jobs:
         run: >
           dotnet build --no-restore -c Release
           -p:Version=${{ steps.ver.outputs.v }}
-      - name: Plugin-Bundle packen
+      - name: Plugin-Bundle packen (mit plugin.json.version-Patch)
+        # WICHTIG: die plugin.json im Source-Repo enthält eine hart codierte
+        # "version"-Zeile (z.B. "1.7.0"). Beim Release wird die durch die
+        # Tag-Version ersetzt, damit der Host nach dem Update-Install nicht
+        # eine Endlosschleife hat („Update verfügbar" → Install → beim
+        # nächsten Check wieder „Update verfügbar" weil version im Bundle
+        # unverändert ist).
         run: |
           mkdir -p bundle
           cp KroModIx.Plugin.Icarus/bin/Release/net10.0/KroModIx.Plugin.Icarus.dll bundle/
           cp KroModIx.Plugin.Icarus/bin/Release/net10.0/plugin.json bundle/
+          # Version im Bundle-Manifest auf die Tag-Version setzen (nur wenn Tag-Build).
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            sed -i -E 's/("version"\s*:\s*)"[^"]+"/\1"'"${{ steps.ver.outputs.v }}"'"/' bundle/plugin.json
+            echo "== gepatchte plugin.json =="
+            grep '"version"' bundle/plugin.json
+          fi
           cd bundle
           zip -r "../KroModIx.Plugin.Icarus-${{ steps.ver.outputs.v }}.zip" .
       - name: GitHub-Release
