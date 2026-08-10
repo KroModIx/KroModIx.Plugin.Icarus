@@ -552,6 +552,176 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         return $"{gb:F2} GB";
     }
 
+    [ObservableProperty] private bool _isCheckingUpdates;
+
+    /// <summary>Prüft für jeden Manual-Mod mit erkennbarer Nexus-Mod-Id ob
+    /// Nexus eine neuere Version anbietet als die installierte (aus dem
+    /// Filename via <see cref="NexusFileNameParser"/>). Throttled 250 ms pro
+    /// Mod (Nexus Rate-Limit 2500/h Premium, 250/h Free).
+    ///
+    /// <para>Workshop-Mods überspringen wir — Steam macht die Updates
+    /// automatisch. Rows ohne Nexus-Filename-Muster (User-Copy) ebenso.</para>
+    ///
+    /// <para>Analog LS25 <c>CheckUpdatesAsync</c> und Satisfactory v0.2.0.</para>
+    /// </summary>
+    [RelayCommand]
+    private async Task CheckUpdatesAsync()
+    {
+        if (IsCheckingUpdates) return;
+        if (_nexusApi is null || _nexusSettings is null)
+        {
+            _host.Notifications.Notify(
+                "Nexus-API nicht verfügbar (Convenience-Ctor genutzt).",
+                NotificationLevel.Warning);
+            return;
+        }
+        if (!_nexusSettings.HasApiKey)
+        {
+            _host.Notifications.Notify(
+                "Kein Nexus-API-Key konfiguriert — Updates prüfen im Nexus-Settings-Tab.",
+                NotificationLevel.Warning);
+            return;
+        }
+
+        IsCheckingUpdates = true;
+        var slug = _nexusSettings.Current.GameSlug;
+        try
+        {
+            var candidates = _allMods
+                .Where(r => r.IsManual && r.NexusModId is int)
+                .ToList();
+            int checkedCount = 0, updatedCount = 0;
+            foreach (var row in candidates)
+            {
+                var modId = row.NexusModId!.Value;
+                var installedVersion = row.Version;
+                if (string.IsNullOrWhiteSpace(installedVersion)) continue;
+
+                checkedCount++;
+                Summary = $"Updates prüfen: {checkedCount} · {row.DisplayName}";
+                try
+                {
+                    var detail = await _nexusApi.GetModDetailAsync(slug, modId);
+                    if (detail is null || string.IsNullOrWhiteSpace(detail.Version)) continue;
+                    if (IsVersionNewer(detail.Version, installedVersion))
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                            row.SetUpdateAvailable(detail.Version));
+                        updatedCount++;
+                        _host.Logger.Info("Update verfügbar {Mod}: {Old} → {New}",
+                            row.DisplayName, installedVersion, detail.Version);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _host.Logger.Debug(ex, "Update-Check für mod_id={Id} fehlgeschlagen", modId);
+                }
+                try { await Task.Delay(250); } catch { break; }
+            }
+            Summary = updatedCount > 0
+                ? $"Updates gefunden: {updatedCount} von {checkedCount} geprüften Mods."
+                : $"Keine Updates. {checkedCount} Mods geprüft.";
+            _host.Notifications.Notify(Summary,
+                updatedCount > 0 ? NotificationLevel.Success : NotificationLevel.Info);
+        }
+        finally { IsCheckingUpdates = false; }
+    }
+
+    /// <summary>Führt Update aus: neue PAK-Version downloaden (Premium-
+    /// Direct-URL), alte PAK deinstallieren, neue installieren. Enabled-
+    /// State wird übertragen. Braucht Nexus-Premium — Free-User bekommen
+    /// Toast mit Hinweis auf Browser-Weg.</summary>
+    [RelayCommand]
+    private async Task UpdateModAsync(PakRow? row)
+    {
+        if (row is null || !row.HasUpdate) return;
+        if (row.NexusModId is not int modId)
+        {
+            _host.Notifications.Notify("Keine Nexus-Mod-Id — Update nicht auflösbar.",
+                NotificationLevel.Warning);
+            return;
+        }
+        if (_nexusApi is null || _nexusSettings is null)
+        {
+            _host.Notifications.Notify("Nexus-API nicht verfügbar.",
+                NotificationLevel.Warning);
+            return;
+        }
+        if (!_nexusSettings.Current.IsPremium)
+        {
+            _host.Notifications.Notify(
+                "Update braucht Nexus-Premium für Direct-Download. Browser-Weg via Nexus-Katalog.",
+                NotificationLevel.Warning);
+            return;
+        }
+
+        var slug = _nexusSettings.Current.GameSlug;
+        using var scope = _host.BeginProgress($"Update: {row.DisplayName}");
+        scope.Report(0, "Datei-Liste laden …");
+        try
+        {
+            var files = await _nexusApi.GetFilesAsync(slug, modId);
+            var file = NexusViewModel.PickMainFile(files);
+            if (file is null)
+            {
+                _host.Notifications.Notify("Keine Main-Datei bei Nexus gefunden.",
+                    NotificationLevel.Warning);
+                return;
+            }
+
+            scope.Report(0, $"Download-URL holen ({file.FileName}) …");
+            var link = await _nexusApi.GetDownloadLinkAsync(slug, modId, file.FileId);
+            if (link is null)
+            {
+                _host.Notifications.Notify(
+                    "Nexus verweigert Direct-URL — Premium-Status im Nexus-Settings-Tab prüfen.",
+                    NotificationLevel.Error);
+                return;
+            }
+
+            using var http = _host.CreateHttpClient("nexus-download");
+            var progress = new Progress<double>(f =>
+                scope.Report(f, $"{file.FileName} · {(int)(f * 100)}%"));
+            var wasEnabled = row.Source.IsEnabled;
+
+            var newPakPath = await _installer.DownloadPakAsync(http, link, file.FileName,
+                overwrite: true, progress);
+            _downloadBus.RaiseDownloadsChanged(Path.GetFileName(newPakPath));
+
+            // Alte Version deinstallieren, neue installieren (identisch zu LS25 v0.7-Update).
+            _installer.Uninstall(row.Source);
+            var installed = _installer.Install(newPakPath, overwrite: true);
+            if (!wasEnabled)
+                _installer.SetEnabled(installed, false);
+
+            _host.Notifications.Notify(
+                $"Update installiert: {row.DisplayName} → v{row.LatestVersion}",
+                NotificationLevel.Success);
+            _downloadBus.RaiseModInstalled(installed.FileName);
+            Refresh();
+        }
+        catch (Exception ex)
+        {
+            _host.Logger.Warn(ex, "Update fehlgeschlagen für mod_id={Id}", modId);
+            _host.Notifications.Notify($"Update-Fehler: {ex.Message}", NotificationLevel.Error);
+        }
+    }
+
+    private static bool IsVersionNewer(string candidate, string installed)
+    {
+        var c = StripSuffix(candidate.TrimStart('v'));
+        var i = StripSuffix(installed.TrimStart('v'));
+        if (!System.Version.TryParse(c, out var cV)) return false;
+        if (!System.Version.TryParse(i, out var iV)) return false;
+        return cV > iV;
+
+        static string StripSuffix(string s)
+        {
+            var idx = s.IndexOfAny(new[] { '-', '+' });
+            return idx > 0 ? s.Substring(0, idx) : s;
+        }
+    }
+
     public void Dispose()
     {
         _manualWatcher?.Dispose();
@@ -605,6 +775,28 @@ public sealed partial class PakRow : ObservableObject
     public bool HasSummary => !string.IsNullOrWhiteSpace(Summary);
     public bool CanShowDetail => NexusModId is int;
     public string DisplayName => !string.IsNullOrWhiteSpace(ModName) ? ModName! : FileName;
+
+    /// <summary>Wird von <c>CheckUpdatesAsync</c> gesetzt wenn Nexus eine
+    /// neuere Version anbietet als die installierte (aus dem Filename +
+    /// Detail-Fetch). Steuert Update-Badge + ⬆ Update-Button. Nur bei
+    /// Manual-Rows mit erkennbarer NexusModId möglich — Workshop-Updates
+    /// macht Steam automatisch.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateBadgeText))]
+    private bool _hasUpdate;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateBadgeText))]
+    private string? _latestVersion;
+
+    public string UpdateBadgeText =>
+        HasUpdate && LatestVersion is not null ? $"⬆ Update v{LatestVersion}" : "";
+
+    public void SetUpdateAvailable(string catalogVersion)
+    {
+        LatestVersion = catalogVersion;
+        HasUpdate = true;
+    }
 
     private static string FormatBytes(long bytes)
     {

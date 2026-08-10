@@ -51,6 +51,15 @@ public sealed class InstalledPaksView : UserControl
 
     private static Control BuildToolbar()
     {
+        var checkUpdatesBtn = new Button { Name = "CheckUpdatesButton", Content = "🔄  Updates prüfen" };
+        checkUpdatesBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.CheckUpdatesCommand)));
+        checkUpdatesBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.IsCheckingUpdates))
+        {
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
+        });
+        ToolTip.SetTip(checkUpdatesBtn,
+            "Prüft für jeden Manual-Mod mit erkennbarer Nexus-Mod-Id ob dort eine neuere Version steht (throttled 250ms). Workshop-Mods updated Steam automatisch.");
+
         var installBtn = new Button { Content = "📁  PAK installieren…" };
         installBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.InstallFromFileCommand)));
         var refreshBtn = new Button { Content = "↺  Aktualisieren" };
@@ -80,6 +89,8 @@ public sealed class InstalledPaksView : UserControl
             Spacing = 6,
             Margin = new Thickness(0, 0, 0, 10),
         };
+        toolbar.Children.Add(checkUpdatesBtn);
+        toolbar.Children.Add(NewDivider());
         toolbar.Children.Add(installBtn);
         toolbar.Children.Add(refreshBtn);
         toolbar.Children.Add(toggleBulkBtn);
@@ -257,6 +268,25 @@ public sealed class InstalledPaksView : UserControl
         workshopBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop)));
         titleRow.Children.Add(workshopBadge);
 
+        // Update-Badge (Kroste-Gold auf schwarz) — nur wenn CheckUpdatesAsync
+        // ein neueres Version bei Nexus entdeckt hat.
+        var updateBadge = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8, 1),
+            VerticalAlignment = VerticalAlignment.Center,
+            [!Border.BackgroundProperty] = new DynamicResourceExtension("KrosteGoldBrush"),
+        };
+        var updateBadgeText = new TextBlock
+        {
+            FontSize = 10, FontWeight = FontWeight.SemiBold,
+            Foreground = Brushes.Black,
+        };
+        updateBadgeText.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.UpdateBadgeText)));
+        updateBadge.Child = updateBadgeText;
+        updateBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.HasUpdate)));
+        titleRow.Children.Add(updateBadge);
+
         // Meta-Zeile: Author · Version · Size · State (analog Downloads-Tab)
         var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 2, 0, 0) };
         var authorTb = new TextBlock(); authorTb.Classes.Add("muted");
@@ -305,6 +335,12 @@ public sealed class InstalledPaksView : UserControl
         };
 
         // Row-Aktionen rechts
+        // Update-Button (Accent) nur bei Manual-Rows mit HasUpdate.
+        var updateBtn = new Button { Content = "⬆  Update" };
+        updateBtn.Classes.Add("accent");
+        BindRowCommand(updateBtn, nameof(InstalledPaksViewModel.UpdateModCommand));
+        updateBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.HasUpdate)));
+
         var toggleBtn = new Button { Content = "⏻  (De-)Aktivieren" };
         BindRowCommand(toggleBtn, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
         toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsManual)));
@@ -332,7 +368,7 @@ public sealed class InstalledPaksView : UserControl
         {
             Spacing = 6,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { toggleBtn, detailBtn, uninstallBtn, workshopHint },
+            Children = { updateBtn, toggleBtn, detailBtn, uninstallBtn, workshopHint },
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
