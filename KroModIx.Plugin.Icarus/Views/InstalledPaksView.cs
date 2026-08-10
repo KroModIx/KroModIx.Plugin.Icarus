@@ -51,6 +51,13 @@ public sealed class InstalledPaksView : UserControl
 
     private static Control BuildToolbar()
     {
+        var updateAllBtn = new Button { Name = "UpdateAllButton", Content = "⬆  Alle updaten" };
+        updateAllBtn.Classes.Add("accent");
+        updateAllBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.UpdateAllCommand)));
+        updateAllBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.HasAnyUpdate)));
+        ToolTip.SetTip(updateAllBtn,
+            "Installiert alle Updates sequenziell (Nexus-Rate-Limit-Rücksicht). Braucht Nexus-Premium.");
+
         var checkUpdatesBtn = new Button { Name = "CheckUpdatesButton", Content = "🔄  Updates prüfen" };
         checkUpdatesBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.CheckUpdatesCommand)));
         checkUpdatesBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.IsCheckingUpdates))
@@ -90,6 +97,7 @@ public sealed class InstalledPaksView : UserControl
             Margin = new Thickness(0, 0, 0, 10),
         };
         toolbar.Children.Add(checkUpdatesBtn);
+        toolbar.Children.Add(updateAllBtn);
         toolbar.Children.Add(NewDivider());
         toolbar.Children.Add(installBtn);
         toolbar.Children.Add(refreshBtn);
