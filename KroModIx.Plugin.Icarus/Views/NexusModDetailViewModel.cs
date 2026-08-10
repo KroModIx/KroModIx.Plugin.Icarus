@@ -36,10 +36,36 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
         NexusApiClient api, NexusCategoryService categories,
         PakInstallService installer, DownloadEventBus downloadBus,
         IHostServices host)
+        : this(row.Source.ModId, gameSlug, isPremium, api, categories, installer,
+               downloadBus, host,
+               initialTitle: row.Name,
+               initialAuthor: row.Author,
+               initialSummary: row.Source.Summary,
+               initialVersion: row.VersionDisplay,
+               initialEndorsements: row.EndorsementsText,
+               initialUpdated: row.UpdatedText,
+               initialCover: row.Cover)
+    { }
+
+    /// <summary>Vollständiger Constructor mit expliziten Vorbelegungs-Werten —
+    /// vom Downloads-Tab genutzt, wo die Row-Struktur eine andere ist als
+    /// <see cref="NexusRow"/>. Die Vorbelegung wird sofort im Dialog gezeigt
+    /// während <see cref="LoadDetailAsync"/> das Full-Detail async nachlädt.</summary>
+    public NexusModDetailViewModel(int modId, string gameSlug, bool isPremium,
+        NexusApiClient api, NexusCategoryService categories,
+        PakInstallService installer, DownloadEventBus downloadBus,
+        IHostServices host,
+        string? initialTitle = null,
+        string? initialAuthor = null,
+        string? initialSummary = null,
+        string? initialVersion = null,
+        string? initialEndorsements = null,
+        string? initialUpdated = null,
+        Bitmap? initialCover = null)
     {
-        _modId = row.Source.ModId;
+        _modId = modId;
         _gameSlug = gameSlug;
-        _detailUrl = row.Source.DetailUrl(gameSlug);
+        _detailUrl = $"https://www.nexusmods.com/{gameSlug}/mods/{modId}";
         _api = api;
         _categories = categories;
         _installer = installer;
@@ -47,15 +73,13 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
         IsPremium = isPremium;
         _host = host;
 
-        // Vorbelegen aus der Row (der Katalog-Snapshot hat schon Fallback-Daten),
-        // damit der Dialog nicht leer aufmacht während der Detail-Load läuft.
-        Title = row.Name;
-        Author = row.Author;
-        Summary = row.Source.Summary;
-        Version = row.VersionDisplay;
-        EndorsementsText = row.EndorsementsText;
-        UpdatedText = row.UpdatedText;
-        Cover = row.Cover;
+        Title = initialTitle ?? "";
+        Author = initialAuthor ?? "";
+        Summary = initialSummary ?? "";
+        Version = initialVersion ?? "";
+        EndorsementsText = initialEndorsements ?? "";
+        UpdatedText = initialUpdated ?? "";
+        Cover = initialCover;
         Description = "Detail-Beschreibung wird geladen …";
 
         _ = LoadDetailAsync();

@@ -46,6 +46,12 @@ public sealed class DownloadsView : UserControl
         list.Bind(ListBox.SelectedItemProperty, new Binding(nameof(DownloadsViewModel.Selected))
         { Mode = BindingMode.TwoWay });
         list.ItemTemplate = new FuncDataTemplate<DownloadRow>((row, _) => row is null ? null : BuildRowTemplate(), true);
+        // Doppelklick auf Row öffnet Detail-Dialog (analog Nexus-Tab).
+        list.DoubleTapped += (_, _) =>
+        {
+            if (DataContext is DownloadsViewModel vm && list.SelectedItem is DownloadRow row)
+                vm.ShowDetailCommand.Execute(row);
+        };
 
         Content = new DockPanel
         {
@@ -145,6 +151,10 @@ public sealed class DownloadsView : UserControl
         installBtn.Classes.Add("accent");
         BindRowCommand(installBtn, nameof(DownloadsViewModel.InstallRowCommand));
 
+        var detailBtn = new Button { Content = "🔍  Details" };
+        BindRowCommand(detailBtn, nameof(DownloadsViewModel.ShowDetailCommand));
+        ToolTip.SetTip(detailBtn, "Nexus-Mod-Detail öffnen (nur bei Downloads mit erkennbarer Nexus-Mod-Id)");
+
         var deleteBtn = new Button { Content = "🗑  Löschen" };
         deleteBtn.Classes.Add("danger");
         BindRowCommand(deleteBtn, nameof(DownloadsViewModel.DeleteRowCommand));
@@ -152,7 +162,7 @@ public sealed class DownloadsView : UserControl
         var actions = new StackPanel
         {
             Spacing = 6, VerticalAlignment = VerticalAlignment.Center,
-            Children = { installBtn, deleteBtn },
+            Children = { installBtn, detailBtn, deleteBtn },
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };

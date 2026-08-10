@@ -90,7 +90,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         yield return new NexusTab(_nexusCatalog, _nexusSettings, _nexusApi, _nexusCategories,
             installer, _downloadBus, _paths, _host);
         yield return new DownloadsTab(installer, _downloadBus, _host,
-            _nexusApi, _nexusSettings, _paths);
+            _nexusApi, _nexusSettings, _paths, _nexusCategories);
         yield return new NexusSettingsTab(_nexusSettings, _nexusApi, _host);
     }
 
@@ -192,16 +192,18 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         private readonly NexusApiClient _api;
         private readonly NexusSettingsService _settings;
         private readonly IcarusPaths _paths;
+        private readonly NexusCategoryService _categories;
         public DownloadsTab(PakInstallService installer, DownloadEventBus bus, IHostServices host,
-            NexusApiClient api, NexusSettingsService settings, IcarusPaths paths)
-        { _installer = installer; _bus = bus; _host = host; _api = api; _settings = settings; _paths = paths; }
+            NexusApiClient api, NexusSettingsService settings, IcarusPaths paths,
+            NexusCategoryService categories)
+        { _installer = installer; _bus = bus; _host = host; _api = api; _settings = settings; _paths = paths; _categories = categories; }
         public string Id => "downloads";
         public string Label => "Downloads";
         public string Icon => "\U0001F4E5"; // 📥
         public int Order => 20;
         public bool IsVisible(DetectedGame game) => true;
         public Control CreateView(DetectedGame game, IHostServices host) =>
-            new DownloadsView { DataContext = new DownloadsViewModel(_installer, _bus, _host, _api, _settings, _paths) };
+            new DownloadsView { DataContext = new DownloadsViewModel(_installer, _bus, _host, _api, _settings, _paths, _categories) };
     }
 
     private sealed class NexusSettingsTab : IGameTabContribution

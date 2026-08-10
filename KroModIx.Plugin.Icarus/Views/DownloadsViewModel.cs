@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -26,6 +27,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
     private readonly IHostServices _host;
     private readonly NexusApiClient? _nexusApi;
     private readonly NexusSettingsService? _nexusSettings;
+    private readonly NexusCategoryService? _nexusCategories;
     private readonly IcarusPaths? _paths;
     private FileSystemWatcher? _watcher;
 
@@ -33,17 +35,18 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
     /// injizieren (Tests, ältere Wirings). Ohne Nexus-Enrichment → nur
     /// FileNames, keine Cover/Details.</summary>
     public DownloadsViewModel(PakInstallService installer, DownloadEventBus downloadBus, IHostServices host)
-        : this(installer, downloadBus, host, null, null, null) { }
+        : this(installer, downloadBus, host, null, null, null, null) { }
 
     public DownloadsViewModel(PakInstallService installer, DownloadEventBus downloadBus,
         IHostServices host, NexusApiClient? nexusApi, NexusSettingsService? nexusSettings,
-        IcarusPaths? paths)
+        IcarusPaths? paths, NexusCategoryService? nexusCategories = null)
     {
         _installer = installer;
         _downloadBus = downloadBus;
         _host = host;
         _nexusApi = nexusApi;
         _nexusSettings = nexusSettings;
+        _nexusCategories = nexusCategories;
         _paths = paths;
         DownloadsDir = installer.DownloadsDir;
         RefreshCommand.Execute(null);
@@ -242,6 +245,47 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void OpenDownloadsFolder() => _host.Shell.OpenDirectory(DownloadsDir);
+
+    /// <summary>Öffnet den Nexus-Mod-Detail-Dialog für die Row. Nur möglich
+    /// wenn der Filename dem Nexus-Muster entspricht (<see cref="DownloadRow.NexusModId"/>
+    /// != null) UND die Nexus-Dependencies gewired sind. Der Dialog kriegt
+    /// die schon vorhandenen Row-Werte als Initial-Anzeige und lädt das
+    /// Full-Detail parallel nach.</summary>
+    [RelayCommand]
+    private void ShowDetail(DownloadRow? row)
+    {
+        if (row is null) return;
+        if (_nexusApi is null || _nexusSettings is null || _nexusCategories is null || _paths is null)
+        {
+            _host.Notifications.Notify(
+                "Nexus-Detail nicht verfügbar (Nexus-Client fehlt in dieser Session).",
+                NotificationLevel.Warning);
+            return;
+        }
+        if (row.NexusModId is not int modId)
+        {
+            _host.Notifications.Notify(
+                $"Keine Nexus-Mod-Id im Dateinamen erkennbar: {row.FileName}",
+                NotificationLevel.Info);
+            return;
+        }
+
+        var vm = new NexusModDetailViewModel(
+            modId,
+            _nexusSettings.Current.GameSlug,
+            _nexusSettings.Current.IsPremium,
+            _nexusApi, _nexusCategories, _installer, _downloadBus, _host,
+            initialTitle: row.ModName ?? row.FileName,
+            initialAuthor: row.Author,
+            initialSummary: row.Summary,
+            initialVersion: row.Version,
+            initialUpdated: row.DownloadedText,
+            initialCover: row.Cover);
+        var window = new NexusModDetailWindow { DataContext = vm };
+        var owner = (Avalonia.Application.Current?.ApplicationLifetime
+            as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (owner is not null) window.Show(owner); else window.Show();
+    }
 
     public void Dispose() => _watcher?.Dispose();
 }
