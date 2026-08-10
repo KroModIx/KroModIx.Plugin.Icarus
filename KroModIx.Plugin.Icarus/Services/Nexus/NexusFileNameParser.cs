@@ -41,4 +41,12 @@ public static class NexusFileNameParser
         var m = Pattern.Match(fileName);
         return m.Success ? m.Groups["name"].Value.Trim() : null;
     }
+
+    /// <summary>Extrahiert die Version aus dem Nexus-Filename (Muster-Gruppe
+    /// <c>&lt;version&gt;</c>). Für Update-Check gegen Nexus-<c>detail.Version</c>.</summary>
+    public static string? TryExtractVersion(string fileName)
+    {
+        var m = Pattern.Match(fileName);
+        return m.Success ? m.Groups["version"].Value.Trim() : null;
+    }
 }

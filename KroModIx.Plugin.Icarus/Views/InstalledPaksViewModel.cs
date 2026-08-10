@@ -30,6 +30,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private readonly NexusApiClient? _nexusApi;
     private readonly NexusSettingsService? _nexusSettings;
     private readonly NexusCategoryService? _nexusCategories;
+    private readonly InstalledUpdatesChecker? _updatesChecker;
 
     private readonly List<PakRow> _allMods = new();
     private FileSystemWatcher? _manualWatcher;
@@ -40,12 +41,13 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     /// keine Cover/Details.</summary>
     public InstalledPaksViewModel(PakInstallService installer, PakBackupService backup,
         IcarusPaths paths, DownloadEventBus downloadBus, IHostServices host)
-        : this(installer, backup, paths, downloadBus, host, null, null, null) { }
+        : this(installer, backup, paths, downloadBus, host, null, null, null, null) { }
 
     public InstalledPaksViewModel(PakInstallService installer, PakBackupService backup,
         IcarusPaths paths, DownloadEventBus downloadBus, IHostServices host,
         NexusApiClient? nexusApi, NexusSettingsService? nexusSettings,
-        NexusCategoryService? nexusCategories)
+        NexusCategoryService? nexusCategories,
+        InstalledUpdatesChecker? updatesChecker = null)
     {
         _installer = installer;
         _backup = backup;
@@ -55,6 +57,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         _nexusApi = nexusApi;
         _nexusSettings = nexusSettings;
         _nexusCategories = nexusCategories;
+        _updatesChecker = updatesChecker;
         ModsDir = installer.ModsDir;
         WorkshopDir = installer.WorkshopDir ?? "(kein Workshop-Ordner erkannt)";
         InitEvents();
@@ -554,25 +557,17 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
 
     [ObservableProperty] private bool _isCheckingUpdates;
 
-    /// <summary>Prüft für jeden Manual-Mod mit erkennbarer Nexus-Mod-Id ob
-    /// Nexus eine neuere Version anbietet als die installierte (aus dem
-    /// Filename via <see cref="NexusFileNameParser"/>). Throttled 250 ms pro
-    /// Mod (Nexus Rate-Limit 2500/h Premium, 250/h Free).
-    ///
-    /// <para>Workshop-Mods überspringen wir — Steam macht die Updates
-    /// automatisch. Rows ohne Nexus-Filename-Muster (User-Copy) ebenso.</para>
-    ///
-    /// <para>Analog LS25 <c>CheckUpdatesAsync</c> und Satisfactory v0.2.0.</para>
-    /// </summary>
+    /// <summary>Delegiert an <see cref="InstalledUpdatesChecker"/>. Der schreibt
+    /// nach dem Run automatisch in den <see cref="InstalledUpdatesTracker"/>
+    /// (persistiert für Sidebar-Kachel-Badge). Der <c>onUpdateFound</c>-
+    /// Callback setzt die Row-Update-Badges + zeigt Update-Button.</summary>
     [RelayCommand]
     private async Task CheckUpdatesAsync()
     {
         if (IsCheckingUpdates) return;
-        if (_nexusApi is null || _nexusSettings is null)
+        if (_updatesChecker is null || _nexusSettings is null)
         {
-            _host.Notifications.Notify(
-                "Nexus-API nicht verfügbar (Convenience-Ctor genutzt).",
-                NotificationLevel.Warning);
+            _host.Notifications.Notify("Nexus-API nicht verfügbar.", NotificationLevel.Warning);
             return;
         }
         if (!_nexusSettings.HasApiKey)
@@ -584,45 +579,21 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         }
 
         IsCheckingUpdates = true;
-        var slug = _nexusSettings.Current.GameSlug;
         try
         {
-            var candidates = _allMods
-                .Where(r => r.IsManual && r.NexusModId is int)
-                .ToList();
-            int checkedCount = 0, updatedCount = 0;
-            foreach (var row in candidates)
-            {
-                var modId = row.NexusModId!.Value;
-                var installedVersion = row.Version;
-                if (string.IsNullOrWhiteSpace(installedVersion)) continue;
-
-                checkedCount++;
-                Summary = $"Updates prüfen: {checkedCount} · {row.DisplayName}";
-                try
+            var updated = await _updatesChecker.CheckAsync(
+                onUpdateFound: (modId, oldVer, newVer) =>
                 {
-                    var detail = await _nexusApi.GetModDetailAsync(slug, modId);
-                    if (detail is null || string.IsNullOrWhiteSpace(detail.Version)) continue;
-                    if (IsVersionNewer(detail.Version, installedVersion))
-                    {
-                        await Dispatcher.UIThread.InvokeAsync(() =>
-                            row.SetUpdateAvailable(detail.Version));
-                        updatedCount++;
-                        _host.Logger.Info("Update verfügbar {Mod}: {Old} → {New}",
-                            row.DisplayName, installedVersion, detail.Version);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _host.Logger.Debug(ex, "Update-Check für mod_id={Id} fehlgeschlagen", modId);
-                }
-                try { await Task.Delay(250); } catch { break; }
-            }
-            Summary = updatedCount > 0
-                ? $"Updates gefunden: {updatedCount} von {checkedCount} geprüften Mods."
-                : $"Keine Updates. {checkedCount} Mods geprüft.";
+                    var row = _allMods.FirstOrDefault(r => r.NexusModId == modId);
+                    if (row is not null)
+                        Dispatcher.UIThread.Post(() => row.SetUpdateAvailable(newVer));
+                },
+                onProgress: msg => Summary = msg);
+            Summary = updated > 0
+                ? $"Updates gefunden: {updated} Mod(s)."
+                : "Keine Updates.";
             _host.Notifications.Notify(Summary,
-                updatedCount > 0 ? NotificationLevel.Success : NotificationLevel.Info);
+                updated > 0 ? NotificationLevel.Success : NotificationLevel.Info);
         }
         finally { IsCheckingUpdates = false; }
     }
@@ -704,21 +675,6 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         {
             _host.Logger.Warn(ex, "Update fehlgeschlagen für mod_id={Id}", modId);
             _host.Notifications.Notify($"Update-Fehler: {ex.Message}", NotificationLevel.Error);
-        }
-    }
-
-    private static bool IsVersionNewer(string candidate, string installed)
-    {
-        var c = StripSuffix(candidate.TrimStart('v'));
-        var i = StripSuffix(installed.TrimStart('v'));
-        if (!System.Version.TryParse(c, out var cV)) return false;
-        if (!System.Version.TryParse(i, out var iV)) return false;
-        return cV > iV;
-
-        static string StripSuffix(string s)
-        {
-            var idx = s.IndexOfAny(new[] { '-', '+' });
-            return idx > 0 ? s.Substring(0, idx) : s;
         }
     }
 

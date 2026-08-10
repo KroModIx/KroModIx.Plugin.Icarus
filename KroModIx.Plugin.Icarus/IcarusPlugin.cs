@@ -39,10 +39,12 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     private NexusCatalogService? _nexusCatalog;
     private NexusCategoryService? _nexusCategories;
     private NexusUpdateTracker? _updateTracker;
+    private InstalledUpdatesTracker? _installedUpdatesTracker;
     private DownloadEventBus? _downloadBus;
     private IReadOnlyList<DetectedGame> _activatedGames = Array.Empty<DetectedGame>();
     private readonly Dictionary<string, PakInstallService> _installers = new();
     private readonly Dictionary<string, PakBackupService> _backups = new();
+    private readonly Dictionary<string, InstalledUpdatesChecker> _updateCheckers = new();
     private readonly IcarusPathResolver _pathResolver = new();
 
     public Task InitializeAsync(IHostServices host, IReadOnlyList<DetectedGame> activatedGames, CancellationToken ct)
@@ -56,6 +58,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         _nexusCatalog = new NexusCatalogService(_nexusApi, _nexusSettings, _paths);
         _nexusCategories = new NexusCategoryService(_nexusApi, _nexusSettings);
         _updateTracker = new NexusUpdateTracker(_paths);
+        _installedUpdatesTracker = new InstalledUpdatesTracker(_paths);
         _downloadBus = new DownloadEventBus();
         _activatedGames = activatedGames;
 
@@ -72,9 +75,25 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir);
             _installers[game.Target.GameId] = installer;
             _backups[game.Target.GameId] = new PakBackupService(installer);
+            _updateCheckers[game.Target.GameId] = new InstalledUpdatesChecker(
+                installer, _nexusApi, _nexusSettings, _installedUpdatesTracker);
             host.Logger.Info("Icarus initialisiert: manual={Manual}, workshop={Workshop}, downloads={Downloads}",
                 manualDir, workshopDir ?? "(none)", _paths.DownloadsDir);
         }
+
+        // Auto-Check der installierten Mod-Updates im Hintergrund — damit der
+        // grüne ↑-Badge auf der Icarus-Kachel sofort nach Plugin-Load sichtbar
+        // ist. 15 s Delay: gibt UI + Katalog-Load Zeit.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), ct);
+            foreach (var checker in _updateCheckers.Values)
+            {
+                try { await checker.CheckAsync(ct: ct); }
+                catch (Exception ex) { host.Logger.Debug(ex, "Auto-Update-Check fehlgeschlagen"); }
+            }
+        }, ct);
+
         return Task.CompletedTask;
     }
 
@@ -83,11 +102,13 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         if (!_installers.TryGetValue(game.Target.GameId, out var installer) || _host is null
             || _paths is null || _downloadBus is null || _nexusSettings is null
             || _nexusApi is null || _nexusCatalog is null || _nexusCategories is null
-            || !_backups.TryGetValue(game.Target.GameId, out var backup))
+            || _installedUpdatesTracker is null
+            || !_backups.TryGetValue(game.Target.GameId, out var backup)
+            || !_updateCheckers.TryGetValue(game.Target.GameId, out var updatesChecker))
             yield break;
 
         yield return new InstalledTab(installer, backup, _paths, _downloadBus, _host,
-            _nexusApi, _nexusSettings, _nexusCategories);
+            _nexusApi, _nexusSettings, _nexusCategories, updatesChecker);
         yield return new NexusTab(_nexusCatalog, _nexusSettings, _nexusApi, _nexusCategories,
             installer, _downloadBus, _paths, _host);
         yield return new DownloadsTab(installer, _downloadBus, _host,
@@ -114,23 +135,29 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     /// Zustand statt „alle Katalog-Einträge sind neu".</summary>
     public async Task<IReadOnlyList<GameUpdateInfo>> GetPendingUpdatesAsync(CancellationToken cancellationToken)
     {
-        if (_nexusCatalog is null || _updateTracker is null || _activatedGames.Count == 0)
+        if (_nexusCatalog is null || _updateTracker is null
+            || _installedUpdatesTracker is null || _activatedGames.Count == 0)
             return Array.Empty<GameUpdateInfo>();
 
         try
         {
-            // forceRefresh=false: Cache-only, kein Blocking-Netz-Load im
-            // Hintergrund-Loop. Wenn kein Cache: LoadAsync gibt einen leeren
-            // Snapshot oder einen aus einer der drei API-Calls zurück —
-            // exceptions fangen wir.
             var snapshot = await _nexusCatalog.LoadAsync(forceRefresh: false, cancellationToken);
-            var count = _updateTracker.CountNewSince(snapshot);
-            if (count <= 0) return Array.Empty<GameUpdateInfo>();
+            var catalogCount = _updateTracker.CountNewSince(snapshot);
+            var installedCount = _installedUpdatesTracker.PendingCount;
+            var totalCount = catalogCount + installedCount;
+            if (totalCount <= 0) return Array.Empty<GameUpdateInfo>();
 
-            var summary = $"{count} neue Nexus-Mods seit deinem letzten Nexus-Tab-Besuch";
+            var parts = new List<string>(2);
+            if (installedCount > 0)
+                parts.Add(_installedUpdatesTracker.Summary is { Length: > 0 } s
+                    ? s
+                    : $"{installedCount} Mod-Update(s) verfügbar");
+            if (catalogCount > 0)
+                parts.Add($"{catalogCount} neue Nexus-Katalog-Einträge");
+            var summary = string.Join(" · ", parts);
             return _activatedGames
                 .Where(g => g.Target.SteamAppId is int)
-                .Select(g => new GameUpdateInfo(g.Target.SteamAppId!.Value, count, summary))
+                .Select(g => new GameUpdateInfo(g.Target.SteamAppId!.Value, totalCount, summary))
                 .ToList();
         }
         catch (Exception ex)
@@ -150,11 +177,13 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         private readonly NexusApiClient _api;
         private readonly NexusSettingsService _settings;
         private readonly NexusCategoryService _categories;
+        private readonly InstalledUpdatesChecker _updatesChecker;
         public InstalledTab(PakInstallService installer, PakBackupService backup,
             IcarusPaths paths, DownloadEventBus bus, IHostServices host,
-            NexusApiClient api, NexusSettingsService settings, NexusCategoryService categories)
+            NexusApiClient api, NexusSettingsService settings, NexusCategoryService categories,
+            InstalledUpdatesChecker updatesChecker)
         { _installer = installer; _backup = backup; _paths = paths; _bus = bus; _host = host;
-          _api = api; _settings = settings; _categories = categories; }
+          _api = api; _settings = settings; _categories = categories; _updatesChecker = updatesChecker; }
         public string Id => "installed";
         public string Label => "Installiert";
         public string Icon => "\U0001F5FB"; // 🗻
@@ -162,7 +191,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         public bool IsVisible(DetectedGame game) => true;
         public Control CreateView(DetectedGame game, IHostServices host) =>
             new InstalledPaksView { DataContext = new InstalledPaksViewModel(
-                _installer, _backup, _paths, _bus, _host, _api, _settings, _categories) };
+                _installer, _backup, _paths, _bus, _host, _api, _settings, _categories, _updatesChecker) };
     }
 
     private sealed class NexusTab : IGameTabContribution
