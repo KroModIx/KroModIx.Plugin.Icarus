@@ -235,11 +235,12 @@ public sealed class NexusView : UserControl
             Path = "DataContext." + nameof(NexusViewModel.DownloadRowCommand),
         });
         downloadBtn.Bind(Button.CommandParameterProperty, new Binding("."));
-        downloadBtn.Bind(Button.IsEnabledProperty, new Binding
-        {
-            RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
-            Path = "DataContext." + nameof(NexusViewModel.IsPremium),
-        });
+        // WICHTIG: NICHT via RelativeSource FindAncestor auf ListBox binden.
+        // In Avalonia 12 löst das im FuncDataTemplate nicht sauber auf und
+        // liefert null → default(bool)=false → Button disabled auch bei
+        // Premium-Usern. Stattdessen direkt auf die Row-Property, die vom
+        // NexusViewModel bei Row-Erstellung + IsPremium-Change gesetzt wird.
+        downloadBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(NexusRow.IsPremium)));
         ToolTip.SetTip(downloadBtn, "Direct-Download in den Downloads-Ordner (Nexus-Premium nötig)");
 
         var detailBtn = new Button { Content = "🔍  Details" };

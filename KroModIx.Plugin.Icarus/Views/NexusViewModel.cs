@@ -54,9 +54,16 @@ public sealed partial class NexusViewModel : ObservableObject
 
     /// <summary>Aus <see cref="NexusSettings.IsPremium"/> beim ctor gelesen.
     /// Steuert ob die Download-Buttons in den Rows enabled sind — Nexus
-    /// gibt Direct-Download-URLs nur für Premium-Konten heraus.</summary>
+    /// gibt Direct-Download-URLs nur für Premium-Konten heraus. Änderung
+    /// propagiert automatisch auf alle Row-Instanzen (siehe
+    /// <see cref="OnIsPremiumChanged"/>).</summary>
     [ObservableProperty]
     private bool _isPremium;
+
+    partial void OnIsPremiumChanged(bool value)
+    {
+        foreach (var row in Rows) row.IsPremium = value;
+    }
 
     public ObservableCollection<NexusRow> Rows { get; } = new();
 
@@ -172,7 +179,7 @@ public sealed partial class NexusViewModel : ObservableObject
                 || e.Author.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase)))
                 continue;
-            Rows.Add(new NexusRow(e));
+            Rows.Add(new NexusRow(e) { IsPremium = IsPremium });
         }
         _ = LoadCoversAsync(Rows.ToArray());
     }
@@ -306,6 +313,14 @@ public sealed partial class NexusRow : ObservableObject
 {
     public NexusRow(NexusCatalogEntry source) => Source = source;
     public NexusCatalogEntry Source { get; }
+
+    /// <summary>Wird vom <see cref="NexusViewModel"/> beim Erzeugen und bei
+    /// Änderungen des Premium-Status gesetzt. Muss auf der Row selbst liegen
+    /// weil ein <c>RelativeSource FindAncestor</c>-Bind vom Button auf
+    /// die ListBox-DataContext-Property in einem FuncDataTemplate in Avalonia
+    /// nicht zuverlässig aufgelöst wird (Binding liefert null → default(bool)
+    /// = false → Button disabled auch für Premium-User).</summary>
+    [ObservableProperty] private bool _isPremium;
 
     public string Name => Source.Name;
     public string Author => Source.Author;
