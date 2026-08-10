@@ -670,6 +670,11 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                 NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
             Refresh();
+
+            // Skill Kernprinzip 6b: Re-Check triggern damit der Sidebar-Kachel-
+            // Badge sofort sinkt statt bis zum nächsten Auto-Check zu warten.
+            if (_updatesChecker is not null)
+                _ = _updatesChecker.CheckAsync();
         }
         catch (Exception ex)
         {

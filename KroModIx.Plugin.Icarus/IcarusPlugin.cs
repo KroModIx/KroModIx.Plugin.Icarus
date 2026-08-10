@@ -81,9 +81,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
                 manualDir, workshopDir ?? "(none)", _paths.DownloadsDir);
         }
 
-        // Auto-Check der installierten Mod-Updates im Hintergrund — damit der
-        // grüne ↑-Badge auf der Icarus-Kachel sofort nach Plugin-Load sichtbar
-        // ist. 15 s Delay: gibt UI + Katalog-Load Zeit.
+        // Auto-Check bei Plugin-Init.
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(15), ct);
@@ -93,6 +91,20 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
                 catch (Exception ex) { host.Logger.Debug(ex, "Auto-Update-Check fehlgeschlagen"); }
             }
         }, ct);
+
+        // Skill Kernprinzip 6b: nach jedem Install/Update (Row/Bulk/Update-Row)
+        // Checker re-triggern damit Sidebar-Kachel-Badge aktuell bleibt.
+        _downloadBus.ModInstalled += (_, _) =>
+        {
+            _ = Task.Run(async () =>
+            {
+                foreach (var checker in _updateCheckers.Values)
+                {
+                    try { await checker.CheckAsync(); }
+                    catch (Exception ex) { host.Logger.Debug(ex, "Post-Install Update-Check fehlgeschlagen"); }
+                }
+            });
+        };
 
         return Task.CompletedTask;
     }

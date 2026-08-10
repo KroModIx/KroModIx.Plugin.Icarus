@@ -14,6 +14,12 @@ public sealed class DownloadsView : UserControl
 {
     public DownloadsView()
     {
+        var installAllBtn = new Button { Name = "InstallAllButton", Content = "📥  Alle installieren" };
+        installAllBtn.Classes.Add("accent");
+        installAllBtn.Bind(Button.CommandProperty, new Binding(nameof(DownloadsViewModel.InstallAllCommand)));
+        ToolTip.SetTip(installAllBtn,
+            "Installiert alle PAK-Downloads (überschreibt bestehende Versionen). Ideal nach einem Update-Batch.");
+
         var openBtn = new Button { Content = "📂  Downloads-Ordner öffnen" };
         openBtn.Bind(Button.CommandProperty, new Binding(nameof(DownloadsViewModel.OpenDownloadsFolderCommand)));
         var refreshBtn = new Button { Content = "↺  Aktualisieren" };
@@ -23,7 +29,7 @@ public sealed class DownloadsView : UserControl
         {
             Orientation = Orientation.Horizontal, Spacing = 6,
             Margin = new Thickness(0, 0, 0, 10),
-            Children = { openBtn, refreshBtn },
+            Children = { installAllBtn, openBtn, refreshBtn },
         };
 
         var pathLabel = new TextBlock { FontSize = 11, Margin = new Thickness(0, 0, 0, 8) };

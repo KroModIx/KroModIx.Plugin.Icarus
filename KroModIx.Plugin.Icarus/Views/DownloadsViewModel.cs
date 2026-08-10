@@ -209,7 +209,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         if (row is null) return;
         try
         {
-            var installed = _installer.Install(row.Source.FilePath, overwrite: false);
+            var installed = _installer.Install(row.Source.FilePath, overwrite: true);
             _host.Notifications.Notify($"Installiert: {installed.FileName}", NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
             Refresh();
@@ -219,6 +219,44 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
             _host.Logger.Warn(ex, "Icarus Install-from-download fehlgeschlagen");
             _host.Notifications.Notify($"Fehler: {ex.Message}", NotificationLevel.Error);
         }
+    }
+
+    /// <summary>Bulk-Install aller Downloads (Skill Kernprinzip 6a).
+    /// overwrite=true damit Updates funktionieren. Fehler pro Row werden
+    /// geloggt, der Loop läuft weiter.</summary>
+    [RelayCommand]
+    private void InstallAll()
+    {
+        var rows = Rows.ToArray();
+        if (rows.Length == 0)
+        {
+            _host.Notifications.Notify("Keine Downloads zu installieren.", NotificationLevel.Info);
+            return;
+        }
+        using var scope = _host.BeginProgress($"Installiere {rows.Length} PAK-Downloads …");
+        int done = 0, failed = 0;
+        for (int i = 0; i < rows.Length; i++)
+        {
+            var row = rows[i];
+            scope.Report((double)i / rows.Length, $"Installiere {i + 1}/{rows.Length}: {row.DisplayName}");
+            try
+            {
+                var installed = _installer.Install(row.Source.FilePath, overwrite: true);
+                _downloadBus.RaiseModInstalled(installed.FileName);
+                done++;
+            }
+            catch (Exception ex)
+            {
+                _host.Logger.Warn(ex, "Icarus Bulk-Install fehlgeschlagen für {File}", row.FileName);
+                failed++;
+            }
+        }
+        var msg = failed == 0
+            ? $"{done} PAKs installiert."
+            : $"{done} installiert, {failed} Fehler (siehe Log).";
+        _host.Notifications.Notify(msg,
+            failed == 0 ? NotificationLevel.Success : NotificationLevel.Warning);
+        Refresh();
     }
 
     [RelayCommand]
