@@ -51,10 +51,14 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     {
         _host = host;
         _paths = new IcarusPaths(host);
-        _nexusSettings = new NexusSettingsService(_paths, host.Secrets);
-        _nexusApi = new NexusApiClient(
-            host.CreateHttpClient("nexus"),
-            () => _nexusSettings.GetApiKey());
+        // v1.15: Nexus wandert in den Host — API-Key + HTTP-Client werden
+        // zentral verwaltet (Contracts v1.14.0+). Adapter wrappt host.Nexus.
+        _nexusSettings = new NexusSettingsService(_paths, host.Secrets, host.Nexus);
+        _nexusApi = new NexusApiClient(host.Nexus);
+        // Migration: alter Icarus-Key aus plugin-data uebernehmen wenn der Host
+        // noch keinen hat — Notification an User, muss den Key im Host-Settings
+        // neu eintragen (direkter Copy ohne Contract-Erweiterung nicht moeglich).
+        TryNotifyLegacyKeyMigration();
         _nexusCatalog = new NexusCatalogService(_nexusApi, _nexusSettings, _paths);
         _nexusCategories = new NexusCategoryService(_nexusApi, _nexusSettings);
         _updateTracker = new NexusUpdateTracker(_paths);
@@ -125,12 +129,15 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             installer, _downloadBus, _paths, _host);
         yield return new DownloadsTab(installer, _downloadBus, _host,
             _nexusApi, _nexusSettings, _paths, _nexusCategories);
-        yield return new NexusSettingsTab(_nexusSettings, _nexusApi, _host);
+        // v1.15: kein plugin-eigener Nexus-Einstellungen-Tab mehr — der User
+        // pflegt den API-Key jetzt zentral im Host-Settings-Fenster
+        // (Tab „🌐 Nexus"). Alle Nexus-Plugins teilen ihn.
     }
 
     public Task ShutdownAsync()
     {
-        _nexusApi?.Dispose();
+        // v1.15: NexusApiClient hat kein eigenes IDisposable mehr (nur noch
+        // Adapter auf host.Nexus, HTTP-Handle lebt im Host).
         _host?.Logger.Info("Icarus shutdown");
         return Task.CompletedTask;
     }
@@ -254,19 +261,28 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             new DownloadsView { DataContext = new DownloadsViewModel(_installer, _bus, _host, _api, _settings, _paths, _categories) };
     }
 
-    private sealed class NexusSettingsTab : IGameTabContribution
+    // v1.15: NexusSettingsTab entfernt — der User pflegt den API-Key jetzt
+    // zentral im Host-Settings-Fenster (Tab „🌐 Nexus"). Alle Nexus-basierten
+    // Plugins teilen sich den Key.
+
+    /// <summary>v1.15-Migration: prueft ob das Plugin einen alten API-Key
+    /// hatte (im plugin-data/nexus.json) waehrend der Host noch keinen hat,
+    /// und benachrichtigt den User via Toast dass er ihn einmalig im Host-
+    /// Settings-Tab „🌐 Nexus" neu eintragen soll. Direktes Uebernehmen
+    /// wuerde eine Contract-Erweiterung (SetApiKey) brauchen — fuer einen
+    /// einmaligen Migrations-Schritt ist der User-Roundtrip (Copy-Paste aus
+    /// nexusmods.com/users/myaccount?tab=api+access) akzeptabel.</summary>
+    private void TryNotifyLegacyKeyMigration()
     {
-        private readonly NexusSettingsService _settings;
-        private readonly NexusApiClient _api;
-        private readonly IHostServices _host;
-        public NexusSettingsTab(NexusSettingsService settings, NexusApiClient api, IHostServices host)
-        { _settings = settings; _api = api; _host = host; }
-        public string Id => "nexus-settings";
-        public string Label => "Nexus-Einstellungen";
-        public string Icon => "\U0001F511"; // 🔑
-        public int Order => 30;
-        public bool IsVisible(DetectedGame game) => true;
-        public Control CreateView(DetectedGame game, IHostServices host) =>
-            new NexusSettingsView { DataContext = new NexusSettingsViewModel(_settings, _api, _host) };
+        if (_host is null || _nexusSettings is null) return;
+        if (_host.Nexus.HasApiKey) return;      // Host hat schon einen
+        var legacy = _nexusSettings.GetLegacyApiKey();
+        if (string.IsNullOrEmpty(legacy)) return; // Plugin hatte auch keinen
+        _host.Notifications.Notify(
+            "Nexus-Migration: Der API-Key wird ab jetzt zentral im Host verwaltet. " +
+            "Bitte einmalig unter Einstellungen → 🌐 Nexus neu eintragen — " +
+            "danach nutzen alle Plugins (Icarus, Cyberpunk 2077) denselben Key.",
+            NotificationLevel.Info);
+        _host.Logger.Info("Icarus v1.15 Migration: alter API-Key gefunden, User informiert");
     }
 }

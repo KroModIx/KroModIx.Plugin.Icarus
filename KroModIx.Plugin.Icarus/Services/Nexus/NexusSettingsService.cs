@@ -6,10 +6,19 @@ using NLog;
 
 namespace KroModIx.Plugin.Icarus.Services.Nexus;
 
-/// <summary>Load/Save von <see cref="NexusSettings"/> als JSON. Atomar
-/// (tmp+move), defensiv bei kaputter Datei (nach .broken sichern, neu
-/// starten). API-Key läuft über <c>IHostServices.Secrets</c> — hier nur
-/// das verschlüsselte Blob.</summary>
+/// <summary>Ab Icarus v1.15.0 nur noch schmale Fassade auf
+/// <see cref="INexusService"/> (Host-zentraler Nexus-Baukasten). API-Key +
+/// Persistenz + Verschlüsselung sind komplett im Host — der User pflegt
+/// den Key im Host-Settings-Fenster (Tab „🌐 Nexus"), alle Nexus-basierten
+/// Plugins (Icarus, Cyberpunk 2077, …) teilen ihn.
+///
+/// <para>Migration: die alte <c>plugin-data/kroste.icarus/nexus.json</c>
+/// wird von <see cref="IcarusPlugin.InitializeAsync"/> gelesen — wenn der
+/// Host noch keinen Key hat aber Icarus einen alten hatte, zeigt das
+/// Plugin eine Toast-Notification die den User zum Host-Settings-Tab
+/// führt (Migration muss der User einmalig manuell durchklicken —
+/// direktes Key-Übernehmen erfordert eine Contract-Erweiterung, die für
+/// einen einmaligen Migrations-Schritt overkill wäre).</para></summary>
 public sealed class NexusSettingsService
 {
     private static readonly Logger Log = LogManager.GetCurrentClassLogger();
@@ -17,13 +26,18 @@ public sealed class NexusSettingsService
 
     private readonly IcarusPaths _paths;
     private readonly ISecretProtection _secrets;
+    private readonly INexusService _hostNexus;
 
+    /// <summary>Legacy: die alten Icarus-Nexus-Settings (Genres/Filter/Baseline)
+    /// die NICHT den API-Key betreffen. API-Key ist ab v1.15 im Host — der
+    /// Wert hier bleibt fuer Migration-Detection erhalten.</summary>
     public NexusSettings Current { get; private set; } = new();
 
-    public NexusSettingsService(IcarusPaths paths, ISecretProtection secrets)
+    public NexusSettingsService(IcarusPaths paths, ISecretProtection secrets, INexusService hostNexus)
     {
         _paths = paths;
         _secrets = secrets;
+        _hostNexus = hostNexus;
         Load();
     }
 
@@ -59,29 +73,31 @@ public sealed class NexusSettingsService
         catch (Exception ex) { Log.Warn(ex, "NexusSettings-Save fehlgeschlagen"); }
     }
 
-    /// <summary>Verschlüsselt den API-Key und persistiert ihn. Leerer Key
-    /// löscht die gespeicherte Verschlüsselung.</summary>
-    public void SetApiKey(string apiKey)
-    {
-        if (string.IsNullOrWhiteSpace(apiKey))
-            Current.ApiKeyProtected = "";
-        else
-            Current.ApiKeyProtected = _secrets.Protect(apiKey) ?? "";
-        Save();
-    }
+    /// <summary>Delegiert an den Host — Icarus verwaltet den Key nicht mehr
+    /// selbst. Wird noch von altem Code aufgerufen (Views); wirft eine
+    /// klare NotSupportedException damit die Aufrufer migriert werden.
+    /// Nach der v1.15-Migration alle Callsites entfernen.</summary>
+    [Obsolete("Ab Icarus v1.15: API-Key wird im Host-Settings-Tab '🌐 Nexus' gesetzt.")]
+    public void SetApiKey(string apiKey) => throw new NotSupportedException(
+        "Nexus-API-Key wird ab KroModIx v1.14 zentral im Host-Settings-Fenster " +
+        "(Tab '🌐 Nexus') verwaltet — nicht mehr im Plugin.");
 
-    /// <summary>Liefert den entschlüsselten API-Key oder leeren String wenn
-    /// nichts gesetzt/entschlüsselbar.</summary>
-    public string GetApiKey()
+    /// <summary>Legacy-Reader für die Migration (siehe IcarusPlugin.
+    /// TryMigrateLegacyApiKey). Sonst nicht mehr benutzen — das Plugin
+    /// braucht den Key nie direkt, es geht ueber _host.Nexus.</summary>
+    public string GetLegacyApiKey()
     {
         if (string.IsNullOrEmpty(Current.ApiKeyProtected)) return "";
         try { return _secrets.Unprotect(Current.ApiKeyProtected) ?? ""; }
         catch (Exception ex)
         {
-            Log.Warn(ex, "Nexus-API-Key konnte nicht entschlüsselt werden");
+            Log.Warn(ex, "Legacy-Nexus-API-Key konnte nicht entschlüsselt werden");
             return "";
         }
     }
 
-    public bool HasApiKey => !string.IsNullOrEmpty(Current.ApiKeyProtected);
+    /// <summary>Delegiert an <see cref="INexusService.HasApiKey"/>. Alle
+    /// Callsites die früher hier fragten funktionieren unveraendert weiter,
+    /// bekommen aber den Host-Status statt Plugin-Status.</summary>
+    public bool HasApiKey => _hostNexus.HasApiKey;
 }

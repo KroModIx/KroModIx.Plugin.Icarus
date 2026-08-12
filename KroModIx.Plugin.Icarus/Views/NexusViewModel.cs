@@ -11,6 +11,14 @@ using CommunityToolkit.Mvvm.Input;
 using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services;
 using KroModIx.Plugin.Icarus.Services.Nexus;
+// v1.15: Contract-Namespace enthaelt jetzt gleichnamige Nexus-Records
+// (INexusService). Wir wollen aber die Icarus-eigenen (long-Felder +
+// DetailUrl-Extension) — Aliase klaeren den Ambiguity-Konflikt.
+using NexusCatalogEntry = KroModIx.Plugin.Icarus.Services.Nexus.NexusCatalogEntry;
+using NexusFileEntry = KroModIx.Plugin.Icarus.Services.Nexus.NexusFileEntry;
+using NexusCategory = KroModIx.Plugin.Icarus.Services.Nexus.NexusCategory;
+using NexusModDetail = KroModIx.Plugin.Icarus.Services.Nexus.NexusModDetail;
+using NexusValidateResult = KroModIx.Plugin.Icarus.Services.Nexus.NexusValidateResult;
 using NLog;
 
 namespace KroModIx.Plugin.Icarus.Views;
