@@ -16,7 +16,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.7.0",
+        Version: "1.15.1",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
@@ -144,46 +144,29 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
 
     // ---- IUpdateNotifier (Contracts v1.7.0) ----
 
-    /// <summary>Lädt den Nexus-Katalog aus dem Cache (kein Netz-Refresh im
-    /// Hintergrund — der User pflegt den Katalog über den Nexus-Tab) und
-    /// zählt Einträge deren <see cref="NexusCatalogEntry.UpdatedUtc"/>
-    /// jünger als die persistierte Baseline in
-    /// <see cref="NexusUpdateTracker"/> ist. Kein API-Key gesetzt oder kein
-    /// Cache vorhanden → 0 (kein Badge). Beim allerersten Aufruf wird die
-    /// Baseline auf „jetzt" gesetzt — der User sieht sofort einen sauberen
-    /// Zustand statt „alle Katalog-Einträge sind neu".</summary>
-    public async Task<IReadOnlyList<GameUpdateInfo>> GetPendingUpdatesAsync(CancellationToken cancellationToken)
+    /// <summary>Meldet ausstehende Mod-Updates fuer INSTALLIERTE Mods
+    /// (aus <see cref="InstalledUpdatesTracker"/>). Neue Katalog-Eintraege
+    /// zaehlen bewusst NICHT als Badge-Trigger — der gruene ↑-Pfeil steht
+    /// fuer „User hat etwas installiert das ein Update braucht", nicht
+    /// „es gibt neue Community-Uploads". Katalog-News koennen im Nexus-
+    /// Tab-Status oder als optionale Toast-Meldung angezeigt werden,
+    /// verdienen aber keinen Actionable-Badge.</summary>
+    public Task<IReadOnlyList<GameUpdateInfo>> GetPendingUpdatesAsync(CancellationToken cancellationToken)
     {
-        if (_nexusCatalog is null || _updateTracker is null
-            || _installedUpdatesTracker is null || _activatedGames.Count == 0)
-            return Array.Empty<GameUpdateInfo>();
+        if (_installedUpdatesTracker is null || _activatedGames.Count == 0)
+            return Task.FromResult<IReadOnlyList<GameUpdateInfo>>(Array.Empty<GameUpdateInfo>());
 
-        try
-        {
-            var snapshot = await _nexusCatalog.LoadAsync(forceRefresh: false, cancellationToken);
-            var catalogCount = _updateTracker.CountNewSince(snapshot);
-            var installedCount = _installedUpdatesTracker.PendingCount;
-            var totalCount = catalogCount + installedCount;
-            if (totalCount <= 0) return Array.Empty<GameUpdateInfo>();
+        var installedCount = _installedUpdatesTracker.PendingCount;
+        if (installedCount <= 0) return Task.FromResult<IReadOnlyList<GameUpdateInfo>>(Array.Empty<GameUpdateInfo>());
 
-            var parts = new List<string>(2);
-            if (installedCount > 0)
-                parts.Add(_installedUpdatesTracker.Summary is { Length: > 0 } s
-                    ? s
-                    : $"{installedCount} Mod-Update(s) verfügbar");
-            if (catalogCount > 0)
-                parts.Add($"{catalogCount} neue Nexus-Katalog-Einträge");
-            var summary = string.Join(" · ", parts);
-            return _activatedGames
-                .Where(g => g.Target.SteamAppId is int)
-                .Select(g => new GameUpdateInfo(g.Target.SteamAppId!.Value, totalCount, summary))
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            _host?.Logger.Debug(ex, "Icarus IUpdateNotifier fehlgeschlagen — 0 Updates");
-            return Array.Empty<GameUpdateInfo>();
-        }
+        var summary = _installedUpdatesTracker.Summary is { Length: > 0 } s
+            ? s
+            : $"{installedCount} Mod-Update(s) verfügbar";
+        var result = _activatedGames
+            .Where(g => g.Target.SteamAppId is int)
+            .Select(g => new GameUpdateInfo(g.Target.SteamAppId!.Value, installedCount, summary))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<GameUpdateInfo>>(result);
     }
 
     private sealed class InstalledTab : IGameTabContribution
