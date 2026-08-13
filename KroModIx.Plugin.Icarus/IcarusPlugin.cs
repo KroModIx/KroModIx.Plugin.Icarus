@@ -16,14 +16,15 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.16.0",
+        Version: "1.17.0",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
             "(Workshop-Rows read-only). Nexus-Mods-Katalog mit Personal-API-Key. " +
             "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look. " +
             "v1.7.0: grüner ↑-Badge bei neuen Nexus-Einträgen (IUpdateNotifier). " +
-            "v1.16.0: DE+EN-Uebersetzung aller User-facing Strings.");
+            "v1.16.0: DE+EN-Uebersetzung aller User-facing Strings. " +
+            "v1.17.0: Steam-Workshop-Tab (Consumer fuer Host-Contract IHostServices.Workshop) + sprachabhaengige KI-Prompts.");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {
@@ -131,6 +132,9 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             installer, _downloadBus, _paths, _host);
         yield return new DownloadsTab(installer, _downloadBus, _host,
             _nexusApi, _nexusSettings, _paths, _nexusCategories);
+        // v1.17: Steam-Workshop-Tab — nutzt Host-Contract IHostServices.Workshop
+        // fuer Discovery + Enrichment. Read-only (Steam verwaltet die Items).
+        yield return new WorkshopTab(game, _host);
         // v1.15: kein plugin-eigener Nexus-Einstellungen-Tab mehr — der User
         // pflegt den API-Key jetzt zentral im Host-Settings-Fenster
         // (Tab „🌐 Nexus"). Alle Nexus-Plugins teilen ihn.
@@ -244,6 +248,20 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         public bool IsVisible(DetectedGame game) => true;
         public Control CreateView(DetectedGame game, IHostServices host) =>
             new DownloadsView { DataContext = new DownloadsViewModel(_installer, _bus, _host, _api, _settings, _paths, _categories) };
+    }
+
+    private sealed class WorkshopTab : IGameTabContribution
+    {
+        private readonly DetectedGame _game;
+        private readonly IHostServices _host;
+        public WorkshopTab(DetectedGame game, IHostServices host) { _game = game; _host = host; }
+        public string Id => "workshop";
+        public string Label => Strings.T("tab.workshop");
+        public string Icon => "\U0001F310"; // 🌐
+        public int Order => 15;
+        public bool IsVisible(DetectedGame game) => true;
+        public Control CreateView(DetectedGame game, IHostServices host) =>
+            new WorkshopView { DataContext = new WorkshopViewModel(_game, _host) };
     }
 
     // v1.15: NexusSettingsTab entfernt — der User pflegt den API-Key jetzt

@@ -223,10 +223,7 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
         AiSummary = string.Format(Strings.T("detail.ai.starting"), _host.Ai.ProviderInfo);
         try
         {
-            var systemPrompt = "Du bist ein deutschsprachiger Icarus-Mod-Reviewer. " +
-                "Fasse die Mod-Beschreibung in 3–5 Sätzen zusammen: " +
-                "Was macht der Mod? Welche Features/Rezepte/Fahrzeuge/Balance-Änderungen? " +
-                "Für welchen Spielstil (Survival, Cheat, QoL)? Sachlich, kein Werbe-Sprech.";
+            var systemPrompt = Strings.T("ai.prompt.summary_system");
             var userPrompt = $"Titel: {Title}\nAutor: {Author}\n\nBeschreibung:\n{Description}";
             var answer = await _host.Ai.CompleteAsync(systemPrompt, userPrompt);
             AiSummary = string.IsNullOrWhiteSpace(answer)

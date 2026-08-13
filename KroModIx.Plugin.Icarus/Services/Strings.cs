@@ -34,7 +34,22 @@ public static class Strings
         // Tab-Labels
         ["tab.installed"] = "Installiert",
         ["tab.nexus"] = "Nexus",
+        ["tab.workshop"] = "Workshop",
         ["tab.downloads"] = "Downloads",
+
+        // Workshop-Tab (v1.17)
+        ["workshop.no_steam_app"] = "Kein Steam-Spiel — Workshop nicht verfuegbar.",
+        ["workshop.host_too_old"] = "Workshop-Contract benoetigt Host v1.17+.",
+        ["workshop.scanning"] = "Workshop-Ordner scannen …",
+        ["workshop.no_items"] = "Keine Workshop-Abos gefunden.",
+        ["workshop.count"] = "{0} Workshop-Item(s) abonniert.",
+        ["workshop.filter_placeholder"] = "🔍 Filter nach Titel, Autor oder ID …",
+        ["workshop.btn_open_steam"] = "↗  In Steam oeffnen",
+        ["workshop.btn_open_browser"] = "🌐  Community",
+        ["workshop.btn_open_folder"] = "📂  Ordner",
+
+        // KI-Prompts (v1.17 sprachabhaengig)
+        ["ai.prompt.summary_system"] = "Du bist ein deutschsprachiger Icarus-Mod-Reviewer. Fasse die Mod-Beschreibung in 3-5 Saetzen zusammen: Was macht der Mod? Welche Features/Rezepte/Fahrzeuge/Balance-Aenderungen? Fuer welchen Spielstil (Survival, Cheat, QoL)? Sachlich, kein Werbe-Sprech. Antworte auf Deutsch.",
 
         // Installiert-Tab: Toolbar-Buttons
         ["btn.update_all"] = "⬆  Alle updaten",
@@ -243,7 +258,22 @@ public static class Strings
         // Tab-Labels
         ["tab.installed"] = "Installed",
         ["tab.nexus"] = "Nexus",
+        ["tab.workshop"] = "Workshop",
         ["tab.downloads"] = "Downloads",
+
+        // Workshop tab (v1.17)
+        ["workshop.no_steam_app"] = "No Steam app — workshop not available.",
+        ["workshop.host_too_old"] = "Workshop contract requires host v1.17+.",
+        ["workshop.scanning"] = "Scanning workshop folder …",
+        ["workshop.no_items"] = "No workshop subscriptions found.",
+        ["workshop.count"] = "{0} workshop item(s) subscribed.",
+        ["workshop.filter_placeholder"] = "🔍 Filter by title, author or ID …",
+        ["workshop.btn_open_steam"] = "↗  Open in Steam",
+        ["workshop.btn_open_browser"] = "🌐  Community",
+        ["workshop.btn_open_folder"] = "📂  Folder",
+
+        // AI prompts (v1.17 language-aware)
+        ["ai.prompt.summary_system"] = "You are an English-language Icarus mod reviewer. Summarize the mod description in 3-5 sentences: What does the mod do? Which features/recipes/vehicles/balance changes? For which playstyle (survival, cheat, QoL)? Factual, no marketing language. Respond in English.",
 
         // Installed tab: toolbar buttons
         ["btn.update_all"] = "⬆  Update all",
