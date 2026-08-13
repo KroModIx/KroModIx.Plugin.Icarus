@@ -54,8 +54,11 @@ Mods, KI-Zusammenfassung im Detail-Dialog.
 - Verify-Button (setzt Premium-Flag), Game-Slug, Cache-Refresh-Intervall
 
 ### IUpdateNotifier
-Grüner ↑-Badge auf der Icarus-Kachel bei neuen Nexus-Katalog-Einträgen
-UND bei Updates für installierte Manual-PAKs.
+Grüner ↑-Badge auf der Icarus-Kachel **nur bei echten Updates für
+installierte Manual-PAKs** (v1.15.1). Neue Katalog-Einträge sind ein
+Community-News-Signal und werden bewusst nicht mehr im Actionable-Badge
+summiert — sonst wäre der Pfeil dauerhaft grün und der User verliert
+Vertrauen ins Signal.
 
 ## Nexus-API-Key beschaffen
 
