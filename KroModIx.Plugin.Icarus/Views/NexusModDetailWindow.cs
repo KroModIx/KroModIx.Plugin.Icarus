@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using KroModIx.Plugin.Icarus.Services;
 
 namespace KroModIx.Plugin.Icarus.Views;
 
@@ -18,7 +19,7 @@ public sealed class NexusModDetailWindow : Window
 {
     public NexusModDetailWindow()
     {
-        Title = "Nexus-Mod-Detail";
+        Title = Strings.T("detail.window_title");
         Width = 900;
         Height = 720;
         MinWidth = 640;
@@ -135,7 +136,7 @@ public sealed class NexusModDetailWindow : Window
         };
         adultBadge.Child = new TextBlock
         {
-            Text = "🔞 ADULT", FontSize = 10, FontWeight = FontWeight.SemiBold,
+            Text = Strings.T("detail.badge.adult"), FontSize = 10, FontWeight = FontWeight.SemiBold,
             Foreground = Brushes.White,
         };
         adultBadge.Bind(Border.IsVisibleProperty,
@@ -147,11 +148,11 @@ public sealed class NexusModDetailWindow : Window
             RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
             Margin = new Thickness(0, 10, 0, 0),
         };
-        AddMetaRow(metaGrid, 0, "Autor",         nameof(NexusModDetailViewModel.Author));
-        AddMetaRow(metaGrid, 1, "Version",       nameof(NexusModDetailViewModel.Version));
-        AddMetaRow(metaGrid, 2, "Kategorie",     nameof(NexusModDetailViewModel.Category));
-        AddMetaRow(metaGrid, 3, "Aktualisiert",  nameof(NexusModDetailViewModel.UpdatedText));
-        AddMetaRow(metaGrid, 4, "Endorsements",  nameof(NexusModDetailViewModel.EndorsementsText));
+        AddMetaRow(metaGrid, 0, Strings.T("detail.meta.author"),        nameof(NexusModDetailViewModel.Author));
+        AddMetaRow(metaGrid, 1, Strings.T("detail.meta.version"),       nameof(NexusModDetailViewModel.Version));
+        AddMetaRow(metaGrid, 2, Strings.T("detail.meta.category"),      nameof(NexusModDetailViewModel.Category));
+        AddMetaRow(metaGrid, 3, Strings.T("detail.meta.updated"),       nameof(NexusModDetailViewModel.UpdatedText));
+        AddMetaRow(metaGrid, 4, Strings.T("detail.meta.endorsements"),  nameof(NexusModDetailViewModel.EndorsementsText));
 
         var summary = new TextBlock
         {
@@ -181,7 +182,7 @@ public sealed class NexusModDetailWindow : Window
         var aiCard = BuildAiSummaryCard();
 
         // Beschreibung
-        var descTitle = new TextBlock { Text = "Beschreibung", Margin = new Thickness(0, 8, 0, 6) };
+        var descTitle = new TextBlock { Text = Strings.T("detail.section.description"), Margin = new Thickness(0, 8, 0, 6) };
         descTitle.Classes.Add("section-label");
         var desc = new TextBlock { TextWrapping = TextWrapping.Wrap };
         desc.Bind(TextBlock.TextProperty, new Binding(nameof(NexusModDetailViewModel.Description)));
@@ -212,7 +213,7 @@ public sealed class NexusModDetailWindow : Window
 
     private static Control BuildAiSummaryCard()
     {
-        var title = new TextBlock { Text = "🤖 KI-Zusammenfassung", Margin = new Thickness(0, 0, 0, 6) };
+        var title = new TextBlock { Text = Strings.T("detail.section.ai_summary"), Margin = new Thickness(0, 0, 0, 6) };
         title.Classes.Add("section-label");
         var body = new TextBlock { TextWrapping = TextWrapping.Wrap };
         body.Bind(TextBlock.TextProperty, new Binding(nameof(NexusModDetailViewModel.AiSummary)));
@@ -231,7 +232,7 @@ public sealed class NexusModDetailWindow : Window
     {
         // Primär-Aktion: Direct-Download (Premium). Ist disabled wenn kein
         // Premium-Konto — dann führt „Auf Nexus öffnen" zum Browser-Wall.
-        var downloadBtn = new Button { Content = "⬇  Herunterladen" };
+        var downloadBtn = new Button { Content = Strings.T("btn.download_long") };
         downloadBtn.Classes.Add("accent");
         downloadBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusModDetailViewModel.DownloadCommand)));
         downloadBtn.Bind(Button.IsEnabledProperty, new MultiBinding
@@ -243,20 +244,19 @@ public sealed class NexusModDetailWindow : Window
             },
             Converter = new AllTrueConverter(),
         });
-        ToolTip.SetTip(downloadBtn,
-            "Direct-Download in den Downloads-Ordner (Nexus-Premium nötig — sonst \"Auf Nexus öffnen\" für Browser)");
+        ToolTip.SetTip(downloadBtn, Strings.T("tooltip.premium_download_detail"));
 
-        var openBtn = new Button { Content = "↗  Auf Nexus öffnen" };
+        var openBtn = new Button { Content = Strings.T("btn.open_nexus_long") };
         openBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusModDetailViewModel.OpenInBrowserCommand)));
 
-        var summarizeBtn = new Button { Content = "🤖  KI-Zusammenfassung" };
+        var summarizeBtn = new Button { Content = Strings.T("btn.ai_summary") };
         summarizeBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusModDetailViewModel.SummarizeCommand)));
         summarizeBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(NexusModDetailViewModel.SummaryBusy))
         {
             Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
         });
 
-        var closeBtn = new Button { Content = "Schließen" };
+        var closeBtn = new Button { Content = Strings.T("btn.close") };
         closeBtn.Classes.Add("ghost");
         closeBtn.Click += (_, _) => Close();
 
@@ -264,7 +264,7 @@ public sealed class NexusModDetailWindow : Window
         busy.Classes.Add("muted");
         busy.Bind(TextBlock.TextProperty, new Binding(nameof(NexusModDetailViewModel.DownloadBusy))
         {
-            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, string>(v => v ? "…Download läuft…" : "…KI läuft…"),
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, string>(v => v ? Strings.T("detail.busy_download") : Strings.T("detail.busy_ai")),
         });
         busy.Bind(TextBlock.IsVisibleProperty, new MultiBinding
         {

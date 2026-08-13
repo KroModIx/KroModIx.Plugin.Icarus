@@ -16,13 +16,14 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.15.1",
+        Version: "1.16.0",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
             "(Workshop-Rows read-only). Nexus-Mods-Katalog mit Personal-API-Key. " +
             "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look. " +
-            "v1.7.0: grüner ↑-Badge bei neuen Nexus-Einträgen (IUpdateNotifier).");
+            "v1.7.0: grüner ↑-Badge bei neuen Nexus-Einträgen (IUpdateNotifier). " +
+            "v1.16.0: DE+EN-Uebersetzung aller User-facing Strings.");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {
@@ -50,6 +51,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public Task InitializeAsync(IHostServices host, IReadOnlyList<DetectedGame> activatedGames, CancellationToken ct)
     {
         _host = host;
+        Strings.Init(host.Localization);
         _paths = new IcarusPaths(host);
         // v1.15: Nexus wandert in den Host — API-Key + HTTP-Client werden
         // zentral verwaltet (Contracts v1.14.0+). Adapter wrappt host.Nexus.
@@ -187,7 +189,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         { _installer = installer; _backup = backup; _paths = paths; _bus = bus; _host = host;
           _api = api; _settings = settings; _categories = categories; _updatesChecker = updatesChecker; }
         public string Id => "installed";
-        public string Label => "Installiert";
+        public string Label => Strings.T("tab.installed");
         public string Icon => "\U0001F5FB"; // 🗻
         public int Order => 0;
         public bool IsVisible(DetectedGame game) => true;
@@ -213,7 +215,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         { _catalog = catalog; _settings = settings; _api = api; _categories = categories;
           _installer = installer; _downloadBus = downloadBus; _paths = paths; _host = host; }
         public string Id => "nexus";
-        public string Label => "Nexus";
+        public string Label => Strings.T("tab.nexus");
         public string Icon => "\U0001F30D"; // 🌍
         public int Order => 10;
         public bool IsVisible(DetectedGame game) => true;
@@ -236,7 +238,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             NexusCategoryService categories)
         { _installer = installer; _bus = bus; _host = host; _api = api; _settings = settings; _paths = paths; _categories = categories; }
         public string Id => "downloads";
-        public string Label => "Downloads";
+        public string Label => Strings.T("tab.downloads");
         public string Icon => "\U0001F4E5"; // 📥
         public int Order => 20;
         public bool IsVisible(DetectedGame game) => true;

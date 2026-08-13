@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using KroModIx.Plugin.Icarus.Services;
 
 namespace KroModIx.Plugin.Icarus.Views;
 
@@ -51,43 +52,41 @@ public sealed class InstalledPaksView : UserControl
 
     private static Control BuildToolbar()
     {
-        var updateAllBtn = new Button { Name = "UpdateAllButton", Content = "⬆  Alle updaten" };
+        var updateAllBtn = new Button { Name = "UpdateAllButton", Content = Strings.T("btn.update_all") };
         updateAllBtn.Classes.Add("accent");
         updateAllBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.UpdateAllCommand)));
         updateAllBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.HasAnyUpdate)));
-        ToolTip.SetTip(updateAllBtn,
-            "Installiert alle Updates sequenziell (Nexus-Rate-Limit-Rücksicht). Braucht Nexus-Premium.");
+        ToolTip.SetTip(updateAllBtn, Strings.T("tooltip.update_all"));
 
-        var checkUpdatesBtn = new Button { Name = "CheckUpdatesButton", Content = "🔄  Updates prüfen" };
+        var checkUpdatesBtn = new Button { Name = "CheckUpdatesButton", Content = Strings.T("btn.check_updates") };
         checkUpdatesBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.CheckUpdatesCommand)));
         checkUpdatesBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.IsCheckingUpdates))
         {
             Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
         });
-        ToolTip.SetTip(checkUpdatesBtn,
-            "Prüft für jeden Manual-Mod mit erkennbarer Nexus-Mod-Id ob dort eine neuere Version steht (throttled 250ms). Workshop-Mods updated Steam automatisch.");
+        ToolTip.SetTip(checkUpdatesBtn, Strings.T("tooltip.check_updates"));
 
-        var installBtn = new Button { Content = "📁  PAK installieren…" };
+        var installBtn = new Button { Content = Strings.T("btn.install_pak") };
         installBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.InstallFromFileCommand)));
-        var refreshBtn = new Button { Content = "↺  Aktualisieren" };
+        var refreshBtn = new Button { Content = Strings.T("btn.refresh") };
         refreshBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.RefreshCommand)));
 
-        var toggleBulkBtn = new Button { Content = "🔀  Aktiv/Inaktiv" };
+        var toggleBulkBtn = new Button { Content = Strings.T("btn.toggle_bulk") };
         toggleBulkBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.ToggleEnabledBulkCommand)));
         toggleBulkBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.HasMultiSelection)));
 
-        var uninstallBulkBtn = new Button { Content = "🗑  Auswahl deinstallieren" };
+        var uninstallBulkBtn = new Button { Content = Strings.T("btn.uninstall_selection") };
         uninstallBulkBtn.Classes.Add("danger");
         uninstallBulkBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.UninstallBulkCommand)));
         uninstallBulkBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(InstalledPaksViewModel.HasMultiSelection)));
 
-        var openManualBtn = new Button { Content = "📂  Mod-Ordner" };
+        var openManualBtn = new Button { Content = Strings.T("btn.open_mods_folder") };
         openManualBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.OpenModsFolderCommand)));
-        var openWorkshopBtn = new Button { Content = "⚙  Workshop-Ordner" };
+        var openWorkshopBtn = new Button { Content = Strings.T("btn.open_workshop_folder") };
         openWorkshopBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.OpenWorkshopFolderCommand)));
-        var backupBtn = new Button { Content = "💾  Backup" };
+        var backupBtn = new Button { Content = Strings.T("btn.backup") };
         backupBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.CreateBackupCommand)));
-        var restoreBtn = new Button { Content = "♻  Restore" };
+        var restoreBtn = new Button { Content = Strings.T("btn.restore") };
         restoreBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.RestoreBackupCommand)));
 
         var toolbar = new StackPanel
@@ -117,7 +116,7 @@ public sealed class InstalledPaksView : UserControl
         {
             [!TextBox.PlaceholderTextProperty] = new Binding
             {
-                Source = "PAK-Mods filtern (Dateiname) …",
+                Source = Strings.T("placeholder.filter_paks"),
             },
             Margin = new Thickness(0, 0, 8, 0),
         };
@@ -128,11 +127,11 @@ public sealed class InstalledPaksView : UserControl
 
     private Control BuildFilterRow()
     {
-        var manualToggle = new ToggleButton { Content = "📁  Manuell" };
+        var manualToggle = new ToggleButton { Content = Strings.T("toggle.manual") };
         manualToggle.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(InstalledPaksViewModel.ShowManual))
         { Mode = BindingMode.TwoWay });
 
-        var workshopToggle = new ToggleButton { Content = "⚙  Workshop" };
+        var workshopToggle = new ToggleButton { Content = Strings.T("toggle.workshop") };
         workshopToggle.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(InstalledPaksViewModel.ShowWorkshop))
         { Mode = BindingMode.TwoWay });
 
@@ -167,7 +166,7 @@ public sealed class InstalledPaksView : UserControl
         };
         text.Classes.Add("muted");
         text.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.ModsDir))
-        { StringFormat = "Manual: {0}" });
+        { StringFormat = Strings.T("label.manual_path_prefix") });
         return text;
     }
 
@@ -259,7 +258,7 @@ public sealed class InstalledPaksView : UserControl
         titleRow.Children.Add(title);
 
         // aktiv-Badge — nur bei manuellen aktiven Mods
-        var enabledBadge = MakeBadge("aktiv", "KrosteSuccessBrush", Brushes.White);
+        var enabledBadge = MakeBadge(Strings.T("badge.active"), "KrosteSuccessBrush", Brushes.White);
         enabledBadge.Bind(Border.IsVisibleProperty, new MultiBinding
         {
             Bindings =
@@ -272,7 +271,7 @@ public sealed class InstalledPaksView : UserControl
         titleRow.Children.Add(enabledBadge);
 
         // Workshop-Badge — nur bei Workshop-Rows, Kroste-Gold-Farbe
-        var workshopBadge = MakeBadge("⚙ WORKSHOP", "KrosteGoldBrush", Brushes.Black);
+        var workshopBadge = MakeBadge(Strings.T("badge.workshop"), "KrosteGoldBrush", Brushes.Black);
         workshopBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop)));
         titleRow.Children.Add(workshopBadge);
 
@@ -344,28 +343,28 @@ public sealed class InstalledPaksView : UserControl
 
         // Row-Aktionen rechts
         // Update-Button (Accent) nur bei Manual-Rows mit HasUpdate.
-        var updateBtn = new Button { Content = "⬆  Update" };
+        var updateBtn = new Button { Content = Strings.T("btn.update") };
         updateBtn.Classes.Add("accent");
         BindRowCommand(updateBtn, nameof(InstalledPaksViewModel.UpdateModCommand));
         updateBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.HasUpdate)));
 
-        var toggleBtn = new Button { Content = "⏻  (De-)Aktivieren" };
+        var toggleBtn = new Button { Content = Strings.T("btn.toggle_enabled") };
         BindRowCommand(toggleBtn, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
         toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsManual)));
 
-        var detailBtn = new Button { Content = "🔍  Details" };
+        var detailBtn = new Button { Content = Strings.T("btn.details") };
         BindRowCommand(detailBtn, nameof(InstalledPaksViewModel.ShowDetailCommand));
         detailBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.CanShowDetail)));
-        ToolTip.SetTip(detailBtn, "Nexus-Mod-Detail öffnen (nur bei Nexus-Downloads mit erkennbarer Mod-Id)");
+        ToolTip.SetTip(detailBtn, Strings.T("tooltip.details"));
 
-        var uninstallBtn = new Button { Content = "🗑  Deinstallieren" };
+        var uninstallBtn = new Button { Content = Strings.T("btn.uninstall") };
         uninstallBtn.Classes.Add("danger");
         BindRowCommand(uninstallBtn, nameof(InstalledPaksViewModel.UninstallRowCommand));
         uninstallBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsManual)));
 
         var workshopHint = new TextBlock
         {
-            Text = "Steam verwaltet",
+            Text = Strings.T("row.steam_managed"),
             FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -395,11 +394,11 @@ public sealed class InstalledPaksView : UserControl
         });
 
         var ctxMenu = new ContextMenu();
-        var miToggle = new MenuItem { Header = "⏻  (De-)Aktivieren" };
+        var miToggle = new MenuItem { Header = Strings.T("btn.toggle_enabled") };
         BindRowCommand(miToggle, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
-        var miDetail = new MenuItem { Header = "🔍  Details" };
+        var miDetail = new MenuItem { Header = Strings.T("btn.details") };
         BindRowCommand(miDetail, nameof(InstalledPaksViewModel.ShowDetailCommand));
-        var miUninstall = new MenuItem { Header = "🗑  Deinstallieren" };
+        var miUninstall = new MenuItem { Header = Strings.T("btn.uninstall") };
         BindRowCommand(miUninstall, nameof(InstalledPaksViewModel.UninstallRowCommand));
         ctxMenu.Items.Add(miToggle);
         ctxMenu.Items.Add(miDetail);

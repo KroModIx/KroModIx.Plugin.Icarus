@@ -59,7 +59,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         _nexusCategories = nexusCategories;
         _updatesChecker = updatesChecker;
         ModsDir = installer.ModsDir;
-        WorkshopDir = installer.WorkshopDir ?? "(kein Workshop-Ordner erkannt)";
+        WorkshopDir = installer.WorkshopDir ?? Strings.T("label.workshop_none");
         InitEvents();
         SetupWatchers();
         RefreshCommand.Execute(null);
@@ -82,7 +82,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     public bool HasSelection => Selected is not null;
     public bool HasMultiSelection => SelectedRows.Count > 1;
     public string SelectedCountLabel =>
-        SelectedRows.Count > 1 ? $"{SelectedRows.Count} ausgewählt" : "";
+        SelectedRows.Count > 1 ? string.Format(Strings.T("status.selection_count"), SelectedRows.Count) : "";
 
     [ObservableProperty] private string _summary = "";
     [ObservableProperty] private string _searchText = "";
@@ -183,13 +183,13 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             var workshopCount = _allMods.Count(r => r.IsWorkshop);
             var enabled = _allMods.Count(r => r.IsEnabled);
             Summary = _allMods.Count == 0
-                ? "Keine Mods gefunden."
-                : $"{enabled} aktiv · {manualCount} manuell · {workshopCount} Workshop";
+                ? Strings.T("status.no_mods")
+                : string.Format(Strings.T("status.mod_summary"), enabled, manualCount, workshopCount);
         }
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Mod-Liste konnte nicht geladen werden");
-            Summary = "Fehler beim Lesen der Mod-Ordner.";
+            Summary = Strings.T("status.mods_load_error");
         }
         ApplyFilter();
 
@@ -266,7 +266,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (_nexusApi is null || _nexusSettings is null || _nexusCategories is null)
         {
             _host.Notifications.Notify(
-                "Nexus-Detail nicht verfügbar (Nexus-Client fehlt in dieser Session).",
+                Strings.T("notify.nexus_detail_unavailable"),
                 NotificationLevel.Warning);
             return;
         }
@@ -274,8 +274,8 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         {
             _host.Notifications.Notify(
                 row.IsWorkshop
-                    ? "Workshop-Mods haben keine Nexus-Details."
-                    : $"Keine Nexus-Mod-Id im Dateinamen erkennbar: {row.FileName}",
+                    ? Strings.T("notify.workshop_no_nexus")
+                    : string.Format(Strings.T("notify.no_nexus_id"), row.FileName),
                 NotificationLevel.Info);
             return;
         }
@@ -320,14 +320,15 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         {
             var updated = _installer.SetEnabled(row.Source, !row.Source.IsEnabled);
             _host.Notifications.Notify(
-                $"Mod {(updated.IsEnabled ? "aktiviert" : "deaktiviert")}: {updated.FileName}",
+                (updated.IsEnabled ? Strings.T("notify.mod_enabled_prefix") : Strings.T("notify.mod_disabled_prefix"))
+                    + updated.FileName,
                 NotificationLevel.Success);
             Refresh();
         }
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Toggle fehlgeschlagen");
-            _host.Notifications.Notify($"Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -338,7 +339,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         var rows = SelectedRows.Where(r => r.Source.Source == PakModSource.Manual).ToList();
         if (rows.Count == 0)
         {
-            _host.Notifications.Notify("Nur Workshop-Mods ausgewählt — die kann Steam nur.",
+            _host.Notifications.Notify(Strings.T("notify.bulk_only_workshop"),
                 NotificationLevel.Warning);
             return;
         }
@@ -356,7 +357,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             catch (Exception ex) { _host.Logger.Warn(ex, "Bulk-Toggle für {F}", r.FileName); }
         }
         _host.Notifications.Notify(
-            $"{done} Mod(s) {(target ? "aktiviert" : "deaktiviert")}.",
+            string.Format(target ? Strings.T("notify.bulk_enable_result") : Strings.T("notify.bulk_disable_result"), done),
             NotificationLevel.Success);
         Refresh();
     }
@@ -371,25 +372,25 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (row.Source.Source == PakModSource.Workshop)
         {
             _host.Notifications.Notify(
-                "Workshop-Mod: Abo in Steam kündigen, dann verschwindet er hier automatisch.",
+                Strings.T("notify.workshop_readonly"),
                 NotificationLevel.Info);
             return;
         }
         bool ok = await _host.Dialogs.ConfirmAsync(
-            "PAK-Mod deinstallieren",
-            $"„{row.Source.FileName}“ wirklich löschen?",
-            okLabel: "Löschen", cancelLabel: "Abbrechen");
+            Strings.T("dialog.uninstall_title"),
+            string.Format(Strings.T("dialog.uninstall_msg"), row.Source.FileName),
+            okLabel: Strings.T("dialog.btn.delete"), cancelLabel: Strings.T("dialog.btn.cancel"));
         if (!ok) return;
         try
         {
             _installer.Uninstall(row.Source);
-            _host.Notifications.Notify($"Deinstalliert: {row.Source.FileName}",
+            _host.Notifications.Notify(Strings.T("notify.uninstalled_prefix") + row.Source.FileName,
                 NotificationLevel.Success);
             Refresh();
         }
         catch (Exception ex)
         {
-            _host.Notifications.Notify($"Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -399,11 +400,11 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         var rows = SelectedRows.Where(r => r.Source.Source == PakModSource.Manual).ToList();
         if (rows.Count == 0) return;
         bool ok = await _host.Dialogs.ConfirmAsync(
-            "Mods deinstallieren",
-            $"{rows.Count} manuelle Mod(s) wirklich löschen?\n\n" +
+            Strings.T("dialog.uninstall_bulk_title"),
+            string.Format(Strings.T("dialog.uninstall_bulk_msg"), rows.Count) + "\n\n" +
             string.Join("\n", rows.Take(10).Select(r => "• " + r.FileName)) +
-            (rows.Count > 10 ? $"\n… und {rows.Count - 10} weitere" : ""),
-            okLabel: "Löschen", cancelLabel: "Abbrechen");
+            (rows.Count > 10 ? "\n" + string.Format(Strings.T("dialog.uninstall_bulk_more"), rows.Count - 10) : ""),
+            okLabel: Strings.T("dialog.btn.delete"), cancelLabel: Strings.T("dialog.btn.cancel"));
         if (!ok) return;
         int done = 0;
         foreach (var r in rows)
@@ -411,7 +412,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             try { _installer.Uninstall(r.Source); done++; }
             catch (Exception ex) { _host.Logger.Warn(ex, "Bulk-Uninstall für {F}", r.FileName); }
         }
-        _host.Notifications.Notify($"{done} Mod(s) deinstalliert.", NotificationLevel.Success);
+        _host.Notifications.Notify(string.Format(Strings.T("notify.bulk_uninstall_result"), done), NotificationLevel.Success);
         Refresh();
     }
 
@@ -419,13 +420,13 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private async Task InstallFromFileAsync()
     {
         var picked = await _host.Dialogs.PickFileAsync(
-            "PAK-Mod wählen",
-            ("Icarus PAK-Mod (.pak)", new[] { "*.pak" }));
+            Strings.T("dialog.pick_pak_title"),
+            (Strings.T("dialog.pick_pak_filter"), new[] { "*.pak" }));
         if (picked is null) return;
         try
         {
             var installed = _installer.Install(picked, overwrite: false);
-            _host.Notifications.Notify($"Installiert: {installed.FileName}",
+            _host.Notifications.Notify(Strings.T("notify.installed_prefix") + installed.FileName,
                 NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
             Refresh();
@@ -433,7 +434,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Install fehlgeschlagen");
-            _host.Notifications.Notify($"Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -442,7 +443,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         try
         {
             var installed = _installer.Install(pakPath, overwrite: false);
-            _host.Notifications.Notify($"Installiert (Drop): {installed.FileName}",
+            _host.Notifications.Notify(Strings.T("notify.installed_drop_prefix") + installed.FileName,
                 NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
         }
@@ -450,7 +451,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         {
             _host.Logger.Warn(ex, "Icarus: Drop-Install fehlgeschlagen");
             _host.Notifications.Notify(
-                $"Drop-Install fehlgeschlagen ({Path.GetFileName(pakPath)}): {ex.Message}",
+                string.Format(Strings.T("notify.drop_install_fail"), Path.GetFileName(pakPath), ex.Message),
                 NotificationLevel.Error);
         }
     }
@@ -464,7 +465,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (_installer.WorkshopDir is null || !Directory.Exists(_installer.WorkshopDir))
         {
             _host.Notifications.Notify(
-                "Kein Workshop-Ordner — noch keine Workshop-Mods abonniert.",
+                Strings.T("notify.no_workshop_folder"),
                 NotificationLevel.Info);
             return;
         }
@@ -478,27 +479,28 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (manualCount == 0)
         {
             _host.Notifications.Notify(
-                "Keine manuellen Mods zum Sichern (Workshop-Mods sichert Steam).",
+                Strings.T("notify.no_backup_manual"),
                 NotificationLevel.Warning);
             return;
         }
         var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
         var target = Path.Combine(_paths.BackupsDir, $"icarus-backup-{timestamp}.zip");
-        using var scope = _host.BeginProgress("Backup erstellen …");
+        using var scope = _host.BeginProgress(Strings.T("progress.backup"));
         var progress = new Progress<BackupProgress>(p =>
-            scope.Report(p.Fraction, $"{p.Current}/{p.Total} · {p.CurrentFileName}"));
+            scope.Report(p.Fraction, string.Format(Strings.T("progress.backup_row"), p.Current, p.Total, p.CurrentFileName)));
         try
         {
             var result = await _backup.CreateBackupAsync(target, progress);
             _host.Notifications.Notify(
-                $"Backup: {result.ModCount} Mods · {FormatBytes(result.FileSizeBytes)} → {Path.GetFileName(result.FilePath)}",
+                string.Format(Strings.T("notify.backup_summary"),
+                    result.ModCount, FormatBytes(result.FileSizeBytes), Path.GetFileName(result.FilePath)),
                 NotificationLevel.Success);
             _host.Shell.OpenDirectory(_paths.BackupsDir);
         }
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Backup fehlgeschlagen");
-            _host.Notifications.Notify($"Backup-Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.backup_error") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -506,33 +508,33 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private async Task RestoreBackupAsync()
     {
         var picked = await _host.Dialogs.PickFileAsync(
-            "Backup-ZIP wählen",
-            ("Icarus-Backup (.zip)", new[] { "*.zip" }));
+            Strings.T("dialog.pick_backup_title"),
+            (Strings.T("dialog.pick_backup_filter"), new[] { "*.zip" }));
         if (picked is null) return;
 
         BackupManifest manifest;
         try { manifest = PakBackupService.ReadManifest(picked); }
         catch (Exception ex)
         {
-            _host.Notifications.Notify($"Backup ungültig: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.backup_invalid") + ex.Message, NotificationLevel.Error);
             return;
         }
 
         bool ok = await _host.Dialogs.ConfirmAsync(
-            "Backup wiederherstellen",
-            $"Backup vom {manifest.CreatedUtc.ToLocalTime():g} · {manifest.Mods.Count} Mods.\n" +
-            "Vorhandene PAKs mit gleichem Namen werden überschrieben.\nFortfahren?",
-            okLabel: "Wiederherstellen", cancelLabel: "Abbrechen");
+            Strings.T("dialog.restore_title"),
+            string.Format(Strings.T("dialog.restore_msg"),
+                manifest.CreatedUtc.ToLocalTime().ToString("g"), manifest.Mods.Count),
+            okLabel: Strings.T("dialog.btn.restore"), cancelLabel: Strings.T("dialog.btn.cancel"));
         if (!ok) return;
 
-        using var scope = _host.BeginProgress("Backup wiederherstellen …");
+        using var scope = _host.BeginProgress(Strings.T("progress.restore"));
         var progress = new Progress<BackupProgress>(p =>
-            scope.Report(p.Fraction, $"{p.Current}/{p.Total} · {p.CurrentFileName}"));
+            scope.Report(p.Fraction, string.Format(Strings.T("progress.backup_row"), p.Current, p.Total, p.CurrentFileName)));
         try
         {
             var result = await _backup.RestoreBackupAsync(picked, progress);
             _host.Notifications.Notify(
-                $"Restore: {result.RestoredCount} wiederhergestellt, {result.SkippedCount} übersprungen.",
+                string.Format(Strings.T("notify.restore_summary"), result.RestoredCount, result.SkippedCount),
                 NotificationLevel.Success);
             _downloadBus.RaiseModInstalled("(restore)");
             Refresh();
@@ -540,7 +542,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Restore fehlgeschlagen");
-            _host.Notifications.Notify($"Restore-Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.restore_error") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -567,13 +569,13 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (IsCheckingUpdates) return;
         if (_updatesChecker is null || _nexusSettings is null)
         {
-            _host.Notifications.Notify("Nexus-API nicht verfügbar.", NotificationLevel.Warning);
+            _host.Notifications.Notify(Strings.T("notify.nexus_api_unavailable"), NotificationLevel.Warning);
             return;
         }
         if (!_nexusSettings.HasApiKey)
         {
             _host.Notifications.Notify(
-                "Kein Nexus-API-Key konfiguriert — Updates prüfen im Nexus-Settings-Tab.",
+                Strings.T("notify.no_nexus_key_check"),
                 NotificationLevel.Warning);
             return;
         }
@@ -590,8 +592,8 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                 },
                 onProgress: msg => Summary = msg);
             Summary = updated > 0
-                ? $"Updates gefunden: {updated} Mod(s)."
-                : "Keine Updates.";
+                ? string.Format(Strings.T("status.updates_found"), updated)
+                : Strings.T("status.no_updates");
             _host.Notifications.Notify(Summary,
                 updated > 0 ? NotificationLevel.Success : NotificationLevel.Info);
             OnPropertyChanged(nameof(HasAnyUpdate));
@@ -612,17 +614,17 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (candidates.Count == 0)
         {
             _host.Notifications.Notify(
-                "Keine offenen Updates. Erst 🔄 Updates prüfen klicken.",
+                Strings.T("notify.no_updates_hint"),
                 NotificationLevel.Info);
             return;
         }
-        using var scope = _host.BeginProgress($"{candidates.Count} PAK-Updates …");
+        using var scope = _host.BeginProgress(string.Format(Strings.T("progress.updates"), candidates.Count));
         int done = 0, failed = 0;
         for (int i = 0; i < candidates.Count; i++)
         {
             var row = candidates[i];
             scope.Report((double)i / candidates.Count,
-                $"Update {i + 1}/{candidates.Count}: {row.DisplayName}");
+                string.Format(Strings.T("progress.update_row"), i + 1, candidates.Count, row.DisplayName));
             try
             {
                 await UpdateModAsync(row);
@@ -635,7 +637,9 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             }
         }
         _host.Notifications.Notify(
-            failed == 0 ? $"{done} PAK-Update(s) installiert." : $"{done} installiert, {failed} Fehler.",
+            failed == 0
+                ? string.Format(Strings.T("notify.updates_installed"), done)
+                : string.Format(Strings.T("notify.updates_result"), done, failed),
             failed == 0 ? NotificationLevel.Success : NotificationLevel.Warning);
         OnPropertyChanged(nameof(HasAnyUpdate));
     }
@@ -650,51 +654,51 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         if (row is null || !row.HasUpdate) return;
         if (row.NexusModId is not int modId)
         {
-            _host.Notifications.Notify("Keine Nexus-Mod-Id — Update nicht auflösbar.",
+            _host.Notifications.Notify(Strings.T("notify.no_mod_id_update"),
                 NotificationLevel.Warning);
             return;
         }
         if (_nexusApi is null || _nexusSettings is null)
         {
-            _host.Notifications.Notify("Nexus-API nicht verfügbar.",
+            _host.Notifications.Notify(Strings.T("notify.nexus_api_unavailable"),
                 NotificationLevel.Warning);
             return;
         }
         if (!_nexusSettings.Current.IsPremium)
         {
             _host.Notifications.Notify(
-                "Update braucht Nexus-Premium für Direct-Download. Browser-Weg via Nexus-Katalog.",
+                Strings.T("notify.update_needs_premium"),
                 NotificationLevel.Warning);
             return;
         }
 
         var slug = _nexusSettings.Current.GameSlug;
-        using var scope = _host.BeginProgress($"Update: {row.DisplayName}");
-        scope.Report(0, "Datei-Liste laden …");
+        using var scope = _host.BeginProgress(string.Format(Strings.T("progress.update_scope"), row.DisplayName));
+        scope.Report(0, Strings.T("progress.update_files_load"));
         try
         {
             var files = await _nexusApi.GetFilesAsync(slug, modId);
             var file = NexusViewModel.PickMainFile(files);
             if (file is null)
             {
-                _host.Notifications.Notify("Keine Main-Datei bei Nexus gefunden.",
+                _host.Notifications.Notify(Strings.T("notify.no_main_file"),
                     NotificationLevel.Warning);
                 return;
             }
 
-            scope.Report(0, $"Download-URL holen ({file.FileName}) …");
+            scope.Report(0, string.Format(Strings.T("progress.update_url"), file.FileName));
             var link = await _nexusApi.GetDownloadLinkAsync(slug, modId, file.FileId);
             if (link is null)
             {
                 _host.Notifications.Notify(
-                    "Nexus verweigert Direct-URL — Premium-Status im Nexus-Settings-Tab prüfen.",
+                    Strings.T("notify.nexus_deny_url_settings"),
                     NotificationLevel.Error);
                 return;
             }
 
             using var http = _host.CreateHttpClient("nexus-download");
             var progress = new Progress<double>(f =>
-                scope.Report(f, $"{file.FileName} · {(int)(f * 100)}%"));
+                scope.Report(f, string.Format(Strings.T("progress.download_percent"), file.FileName, (int)(f * 100))));
             var wasEnabled = row.Source.IsEnabled;
 
             var newPakPath = await _installer.DownloadPakAsync(http, link, file.FileName,
@@ -708,7 +712,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                 _installer.SetEnabled(installed, false);
 
             _host.Notifications.Notify(
-                $"Update installiert: {row.DisplayName} → v{row.LatestVersion}",
+                Strings.T("notify.update_installed_prefix") + $"{row.DisplayName} → v{row.LatestVersion}",
                 NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
             Refresh();
@@ -721,7 +725,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Update fehlgeschlagen für mod_id={Id}", modId);
-            _host.Notifications.Notify($"Update-Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.update_error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -740,13 +744,13 @@ public sealed partial class PakRow : ObservableObject
     public string FileName => Source.FileName;
     public bool IsEnabled => Source.IsEnabled;
     public string StateLabel => Source.Source == PakModSource.Workshop
-        ? "Workshop"
-        : (Source.IsEnabled ? "aktiv" : "inaktiv");
+        ? Strings.T("row.state.workshop")
+        : (Source.IsEnabled ? Strings.T("row.state.active") : Strings.T("row.state.inactive"));
     public string Size => FormatBytes(Source.FileSizeBytes);
     public bool IsWorkshop => Source.Source == PakModSource.Workshop;
     public bool IsManual => Source.Source == PakModSource.Manual;
     public string SourceBadge => Source.Source == PakModSource.Workshop
-        ? "⚙ WORKSHOP"
+        ? Strings.T("badge.workshop")
         : "";
 
     /// <summary>Aus dem Filename extrahiert (nur bei Manual-Mods).
@@ -793,7 +797,7 @@ public sealed partial class PakRow : ObservableObject
     private string? _latestVersion;
 
     public string UpdateBadgeText =>
-        HasUpdate && LatestVersion is not null ? $"⬆ Update v{LatestVersion}" : "";
+        HasUpdate && LatestVersion is not null ? Strings.T("row.update_badge_prefix") + LatestVersion : "";
 
     public void SetUpdateAvailable(string catalogVersion)
     {

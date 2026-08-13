@@ -5,6 +5,7 @@ using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using KroModIx.Plugin.Icarus.Services;
 
 namespace KroModIx.Plugin.Icarus.Views;
 
@@ -31,15 +32,13 @@ public sealed class NexusView : UserControl
         var noKeyStack = new StackPanel { Spacing = 10 };
         var noKeyTitle = new TextBlock
         {
-            Text = "Nexus-Mods braucht einen API-Key",
+            Text = Strings.T("nokey.title"),
             FontSize = 16, FontWeight = FontWeight.SemiBold,
         };
         noKeyStack.Children.Add(noKeyTitle);
         var noKeyBody = new TextBlock
         {
-            Text = "Öffne den Tab \"Nexus-Einstellungen\", trag deinen persönlichen "
-                + "API-Key ein (kostenlos nach Nexus-Registrierung auf nexusmods.com "
-                + "→ Account → API Keys) und komm dann hierher zurück.",
+            Text = Strings.T("nokey.body"),
             TextWrapping = TextWrapping.Wrap,
         };
         noKeyBody.Classes.Add("muted");
@@ -58,30 +57,27 @@ public sealed class NexusView : UserControl
         });
 
         // Toolbar
-        var refreshBtn = new Button { Content = "↺  Aktualisieren" };
+        var refreshBtn = new Button { Content = Strings.T("btn.refresh") };
         refreshBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusViewModel.RefreshCommand)));
 
         // Vollen Katalog laden: nutzt updated.json?period=1m + Detail-Batch.
         // Explizit als Button damit der User weiß dass es Rate-Limit-Kontingent
         // kostet — Free-User kommen mit 250/h nicht immer durch alle 200+ Mods.
-        var loadExtendedBtn = new Button { Name = "NexusLoadExtendedButton", Content = "📚  Vollen Katalog laden" };
+        var loadExtendedBtn = new Button { Name = "NexusLoadExtendedButton", Content = Strings.T("btn.load_extended") };
         loadExtendedBtn.Bind(Button.CommandProperty,
             new Binding(nameof(NexusViewModel.LoadExtendedCommand)));
         loadExtendedBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(NexusViewModel.IsExtendedLoading))
         {
             Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
         });
-        ToolTip.SetTip(loadExtendedBtn,
-            "Erweitert den Katalog um alle Mods aus updated.json?period=1m " +
-            "(Detail-für-Detail, throttled). Kostet API-Rate-Limit-Kontingent " +
-            "— Premium-User 2500/h, Free-User 250/h.");
+        ToolTip.SetTip(loadExtendedBtn, Strings.T("tooltip.load_extended"));
 
-        var openDownloadsBtn = new Button { Content = "📂  Downloads-Ordner" };
+        var openDownloadsBtn = new Button { Content = Strings.T("btn.open_downloads") };
         openDownloadsBtn.Bind(Button.CommandProperty, new Binding(nameof(NexusViewModel.OpenDownloadsFolderCommand)));
 
         var searchBox = new TextBox
         {
-            [!TextBox.PlaceholderTextProperty] = new Binding { Source = "Nexus-Katalog filtern …" },
+            [!TextBox.PlaceholderTextProperty] = new Binding { Source = Strings.T("placeholder.filter_nexus") },
         };
         searchBox.Bind(TextBox.TextProperty, new Binding(nameof(NexusViewModel.SearchText))
         { Mode = BindingMode.TwoWay });
@@ -227,7 +223,7 @@ public sealed class NexusView : UserControl
         // Premium-Download-Button — nur enabled wenn NexusViewModel.IsPremium.
         // Nexus liefert Direct-URLs nur für Premium-Konten; Free-User müssen
         // in den Browser (den „↗ Nexus öffnen"-Button darunter).
-        var downloadBtn = new Button { Content = "⬇  Download" };
+        var downloadBtn = new Button { Content = Strings.T("btn.download") };
         downloadBtn.Classes.Add("accent");
         downloadBtn.Bind(Button.CommandProperty, new Binding
         {
@@ -241,9 +237,9 @@ public sealed class NexusView : UserControl
         // Premium-Usern. Stattdessen direkt auf die Row-Property, die vom
         // NexusViewModel bei Row-Erstellung + IsPremium-Change gesetzt wird.
         downloadBtn.Bind(Button.IsEnabledProperty, new Binding(nameof(NexusRow.IsPremium)));
-        ToolTip.SetTip(downloadBtn, "Direct-Download in den Downloads-Ordner (Nexus-Premium nötig)");
+        ToolTip.SetTip(downloadBtn, Strings.T("tooltip.premium_download"));
 
-        var detailBtn = new Button { Content = "🔍  Details" };
+        var detailBtn = new Button { Content = Strings.T("btn.details") };
         detailBtn.Bind(Button.CommandProperty, new Binding
         {
             RelativeSource = new RelativeSource { Mode = RelativeSourceMode.FindAncestor, AncestorType = typeof(ListBox) },
@@ -251,7 +247,7 @@ public sealed class NexusView : UserControl
         });
         detailBtn.Bind(Button.CommandParameterProperty, new Binding("."));
 
-        var openBtn = new Button { Content = "↗  Nexus öffnen" };
+        var openBtn = new Button { Content = Strings.T("btn.open_nexus") };
         openBtn.Classes.Add("ghost");
         openBtn.Bind(Button.CommandProperty, new Binding
         {

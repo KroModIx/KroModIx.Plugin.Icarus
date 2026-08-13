@@ -16,6 +16,12 @@ Mods, KI-Zusammenfassung im Detail-Dialog.
 - Manuelle PAK-Mods: `<Icarus-Install>/Icarus/Content/Paks/mods/`
 - Steam-Workshop-Abos: `<Library>/steamapps/workshop/content/1149460/`
 
+## Neu in v1.16.0
+- **DE+EN-Übersetzung** aller User-facing Strings (164 Keys) — Tab-Labels,
+  Buttons, Placeholders, Tooltips, Statusmeldungen, Notifications, Dialoge,
+  Detail-Dialog-Sektionen. Sprachwechsel im Host schaltet nach Kachel-Reselect
+  (Host-Tab-Cache invalidiert seit v1.14.7) live um.
+
 ## Features (v1.14.0)
 
 ### Installiert-Tab

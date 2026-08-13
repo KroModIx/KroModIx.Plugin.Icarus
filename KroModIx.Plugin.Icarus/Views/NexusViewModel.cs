@@ -76,7 +76,7 @@ public sealed partial class NexusViewModel : ObservableObject
     public ObservableCollection<NexusRow> Rows { get; } = new();
 
     [ObservableProperty] private string _searchText = "";
-    [ObservableProperty] private string _status = "Nexus-Katalog wird geladen …";
+    [ObservableProperty] private string _status = Strings.T("status.catalog_loading");
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _needsApiKey;
 
@@ -96,7 +96,7 @@ public sealed partial class NexusViewModel : ObservableObject
         if (!_settings.HasApiKey)
         {
             NeedsApiKey = true;
-            Status = "Kein Nexus-API-Key konfiguriert — bitte im Nexus-Settings-Tab eintragen.";
+            Status = Strings.T("status.no_api_key_status");
             return;
         }
         await LoadAsync(forceRefresh: false);
@@ -110,7 +110,7 @@ public sealed partial class NexusViewModel : ObservableObject
             var snap = await _catalog.LoadAsync(forceRefresh);
             _all = snap.Entries.ToList();
             var ageH = (int)(DateTime.UtcNow - snap.SavedUtc).TotalHours;
-            Status = $"{snap.Entries.Count} Mods (Cache-Alter: {ageH} h) — Extended-Load läuft im Hintergrund …";
+            Status = string.Format(Strings.T("status.catalog_summary"), snap.Entries.Count, ageH);
             ApplyFilter();
 
             // Update-Badge auf der Icarus-Kachel zurücksetzen: der User hat
@@ -130,7 +130,7 @@ public sealed partial class NexusViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Warn(ex, "Nexus-Katalog-Load fehlgeschlagen");
-            Status = $"Fehler beim Laden: {ex.Message}";
+            Status = string.Format(Strings.T("status.catalog_load_error"), ex.Message);
         }
         finally { IsBusy = false; }
     }
@@ -146,7 +146,7 @@ public sealed partial class NexusViewModel : ObservableObject
         if (IsExtendedLoading) return;
         IsExtendedLoading = true;
         ExtendedFraction = 0;
-        ExtendedProgressText = "Extended-Katalog: Baseline via updated.json?period=1m …";
+        ExtendedProgressText = Strings.T("status.extended_baseline");
 
         try
         {
@@ -155,18 +155,18 @@ public sealed partial class NexusViewModel : ObservableObject
                 onProgress: (done, total) => Dispatcher.UIThread.Post(() =>
                 {
                     ExtendedFraction = total > 0 ? (double)done / total : null;
-                    ExtendedProgressText = $"Detail {done}/{total} …";
+                    ExtendedProgressText = string.Format(Strings.T("status.extended_progress"), done, total);
                 }));
 
             _all = snap.Entries.ToList();
-            Status = $"{snap.Entries.Count} Mods im Katalog (vollständig).";
+            Status = string.Format(Strings.T("status.catalog_full"), snap.Entries.Count);
             ApplyFilter();
             _updateTracker.MarkSeen();
         }
         catch (Exception ex)
         {
             Log.Warn(ex, "Extended-Katalog-Load fehlgeschlagen");
-            Status = $"Extended-Load fehlgeschlagen: {ex.Message}";
+            Status = string.Format(Strings.T("status.extended_load_error"), ex.Message);
         }
         finally
         {
@@ -263,13 +263,13 @@ public sealed partial class NexusViewModel : ObservableObject
         if (!IsPremium)
         {
             _host.Notifications.Notify(
-                "Direct-Download braucht Nexus-Premium. Klick \"Nexus öffnen\" für den Browser-Weg.",
+                Strings.T("notify.premium_required"),
                 NotificationLevel.Warning);
             return;
         }
 
-        using var scope = _host.BeginProgress($"Nexus: {row.Name}");
-        scope.Report(0, "Datei-Liste laden …");
+        using var scope = _host.BeginProgress(string.Format(Strings.T("progress.nexus_scope"), row.Name));
+        scope.Report(0, Strings.T("progress.update_files_load"));
         try
         {
             var slug = _settings.Current.GameSlug;
@@ -277,30 +277,31 @@ public sealed partial class NexusViewModel : ObservableObject
             var file = PickMainFile(files);
             if (file is null)
             {
-                _host.Notifications.Notify("Keine Main-Datei gefunden.", NotificationLevel.Warning);
+                _host.Notifications.Notify(Strings.T("notify.no_main_file_generic"), NotificationLevel.Warning);
                 return;
             }
-            scope.Report(0, $"Download-URL holen ({file.FileName}) …");
+            scope.Report(0, string.Format(Strings.T("progress.update_url"), file.FileName));
             var link = await _api.GetDownloadLinkAsync(slug, row.Source.ModId, file.FileId);
             if (link is null)
             {
                 _host.Notifications.Notify(
-                    "Nexus verweigert Download-URL — Premium-Status prüfen (Verify im Settings-Tab).",
+                    Strings.T("notify.nexus_deny_url_verify"),
                     NotificationLevel.Error);
                 return;
             }
             using var http = _host.CreateHttpClient("nexus-download");
-            var progress = new Progress<double>(f => scope.Report(f, $"{file.FileName} · {(int)(f * 100)}%"));
+            var progress = new Progress<double>(f =>
+                scope.Report(f, string.Format(Strings.T("progress.download_percent"), file.FileName, (int)(f * 100))));
             var target = await _installer.DownloadPakAsync(http, link, file.FileName,
                 overwrite: false, progress);
-            _host.Notifications.Notify($"Heruntergeladen: {Path.GetFileName(target)}",
+            _host.Notifications.Notify(Strings.T("notify.download_ok_prefix") + Path.GetFileName(target),
                 NotificationLevel.Success);
             _downloadBus.RaiseDownloadsChanged(Path.GetFileName(target));
         }
         catch (Exception ex)
         {
             Log.Warn(ex, "Nexus-Download fehlgeschlagen für mod_id={Id}", row.Source.ModId);
-            _host.Notifications.Notify($"Download-Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.download_error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 

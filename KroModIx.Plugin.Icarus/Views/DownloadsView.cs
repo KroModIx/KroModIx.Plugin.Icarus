@@ -5,6 +5,7 @@ using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using KroModIx.Plugin.Icarus.Services;
 
 namespace KroModIx.Plugin.Icarus.Views;
 
@@ -14,15 +15,14 @@ public sealed class DownloadsView : UserControl
 {
     public DownloadsView()
     {
-        var installAllBtn = new Button { Name = "InstallAllButton", Content = "📥  Alle installieren" };
+        var installAllBtn = new Button { Name = "InstallAllButton", Content = Strings.T("btn.install_all") };
         installAllBtn.Classes.Add("accent");
         installAllBtn.Bind(Button.CommandProperty, new Binding(nameof(DownloadsViewModel.InstallAllCommand)));
-        ToolTip.SetTip(installAllBtn,
-            "Installiert alle PAK-Downloads (überschreibt bestehende Versionen). Ideal nach einem Update-Batch.");
+        ToolTip.SetTip(installAllBtn, Strings.T("tooltip.install_all"));
 
-        var openBtn = new Button { Content = "📂  Downloads-Ordner öffnen" };
+        var openBtn = new Button { Content = Strings.T("btn.open_downloads_folder") };
         openBtn.Bind(Button.CommandProperty, new Binding(nameof(DownloadsViewModel.OpenDownloadsFolderCommand)));
-        var refreshBtn = new Button { Content = "↺  Aktualisieren" };
+        var refreshBtn = new Button { Content = Strings.T("btn.refresh") };
         refreshBtn.Bind(Button.CommandProperty, new Binding(nameof(DownloadsViewModel.RefreshCommand)));
 
         var toolbar = new StackPanel
@@ -35,7 +35,7 @@ public sealed class DownloadsView : UserControl
         var pathLabel = new TextBlock { FontSize = 11, Margin = new Thickness(0, 0, 0, 8) };
         pathLabel.Classes.Add("muted");
         pathLabel.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadsViewModel.DownloadsDir))
-        { StringFormat = "Ordner: {0}" });
+        { StringFormat = Strings.T("label.downloads_folder_prefix") });
 
         var summary = new TextBlock { Margin = new Thickness(0, 10, 0, 0) };
         summary.Classes.Add("muted");
@@ -153,15 +153,15 @@ public sealed class DownloadsView : UserControl
             Children = { title, meta, summaryTb, fileNameTb },
         };
 
-        var installBtn = new Button { Content = "📥  Installieren" };
+        var installBtn = new Button { Content = Strings.T("btn.install") };
         installBtn.Classes.Add("accent");
         BindRowCommand(installBtn, nameof(DownloadsViewModel.InstallRowCommand));
 
-        var detailBtn = new Button { Content = "🔍  Details" };
+        var detailBtn = new Button { Content = Strings.T("btn.details") };
         BindRowCommand(detailBtn, nameof(DownloadsViewModel.ShowDetailCommand));
-        ToolTip.SetTip(detailBtn, "Nexus-Mod-Detail öffnen (nur bei Downloads mit erkennbarer Nexus-Mod-Id)");
+        ToolTip.SetTip(detailBtn, Strings.T("tooltip.details_downloads"));
 
-        var deleteBtn = new Button { Content = "🗑  Löschen" };
+        var deleteBtn = new Button { Content = Strings.T("btn.delete") };
         deleteBtn.Classes.Add("danger");
         BindRowCommand(deleteBtn, nameof(DownloadsViewModel.DeleteRowCommand));
 

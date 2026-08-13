@@ -127,8 +127,8 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
             }
             var totalBytes = Rows.Sum(r => r.Source.FileSizeBytes);
             Summary = Rows.Count == 0
-                ? "Keine PAK-Dateien im Downloads-Ordner."
-                : $"{Rows.Count} PAKs · {totalBytes / 1024.0 / 1024.0:F1} MB gesamt";
+                ? Strings.T("status.no_downloads")
+                : string.Format(Strings.T("status.downloads_summary"), Rows.Count, totalBytes / 1024.0 / 1024.0);
 
             // Async-Enrichment im Hintergrund: pro Row mit erkannter ModId
             // Nexus-Detail holen + Cover laden. Kein Blocking der UI.
@@ -137,7 +137,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Downloads-Liste konnte nicht geladen werden");
-            Summary = "Fehler beim Lesen des Downloads-Ordners.";
+            Summary = Strings.T("status.downloads_load_error");
         }
     }
 
@@ -210,14 +210,14 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         try
         {
             var installed = _installer.Install(row.Source.FilePath, overwrite: true);
-            _host.Notifications.Notify($"Installiert: {installed.FileName}", NotificationLevel.Success);
+            _host.Notifications.Notify(Strings.T("notify.installed_prefix") + installed.FileName, NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
             Refresh();
         }
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus Install-from-download fehlgeschlagen");
-            _host.Notifications.Notify($"Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -230,15 +230,16 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         var rows = Rows.ToArray();
         if (rows.Length == 0)
         {
-            _host.Notifications.Notify("Keine Downloads zu installieren.", NotificationLevel.Info);
+            _host.Notifications.Notify(Strings.T("notify.no_downloads_install"), NotificationLevel.Info);
             return;
         }
-        using var scope = _host.BeginProgress($"Installiere {rows.Length} PAK-Downloads …");
+        using var scope = _host.BeginProgress(string.Format(Strings.T("progress.install_downloads"), rows.Length));
         int done = 0, failed = 0;
         for (int i = 0; i < rows.Length; i++)
         {
             var row = rows[i];
-            scope.Report((double)i / rows.Length, $"Installiere {i + 1}/{rows.Length}: {row.DisplayName}");
+            scope.Report((double)i / rows.Length,
+                string.Format(Strings.T("progress.install_row"), i + 1, rows.Length, row.DisplayName));
             try
             {
                 var installed = _installer.Install(row.Source.FilePath, overwrite: true);
@@ -252,8 +253,8 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
             }
         }
         var msg = failed == 0
-            ? $"{done} PAKs installiert."
-            : $"{done} installiert, {failed} Fehler (siehe Log).";
+            ? string.Format(Strings.T("notify.bulk_install_ok"), done)
+            : string.Format(Strings.T("notify.bulk_install_partial"), done, failed);
         _host.Notifications.Notify(msg,
             failed == 0 ? NotificationLevel.Success : NotificationLevel.Warning);
         Refresh();
@@ -264,20 +265,20 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
     {
         if (row is null) return;
         bool ok = await _host.Dialogs.ConfirmAsync(
-            "Download löschen",
-            $"„{row.Source.FileName}“ aus dem Downloads-Ordner löschen?",
-            okLabel: "Löschen", cancelLabel: "Abbrechen");
+            Strings.T("dialog.delete_download_title"),
+            string.Format(Strings.T("dialog.delete_download_msg"), row.Source.FileName),
+            okLabel: Strings.T("dialog.btn.delete"), cancelLabel: Strings.T("dialog.btn.cancel"));
         if (!ok) return;
         try
         {
             _installer.DeleteDownload(row.Source.FilePath);
-            _host.Notifications.Notify($"Gelöscht: {row.Source.FileName}", NotificationLevel.Success);
+            _host.Notifications.Notify(Strings.T("notify.deleted_prefix") + row.Source.FileName, NotificationLevel.Success);
             _downloadBus.RaiseDownloadsChanged(row.Source.FileName);
             Refresh();
         }
         catch (Exception ex)
         {
-            _host.Notifications.Notify($"Fehler: {ex.Message}", NotificationLevel.Error);
+            _host.Notifications.Notify(Strings.T("notify.error_prefix") + ex.Message, NotificationLevel.Error);
         }
     }
 
@@ -296,14 +297,14 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         if (_nexusApi is null || _nexusSettings is null || _nexusCategories is null || _paths is null)
         {
             _host.Notifications.Notify(
-                "Nexus-Detail nicht verfügbar (Nexus-Client fehlt in dieser Session).",
+                Strings.T("notify.nexus_detail_unavailable"),
                 NotificationLevel.Warning);
             return;
         }
         if (row.NexusModId is not int modId)
         {
             _host.Notifications.Notify(
-                $"Keine Nexus-Mod-Id im Dateinamen erkennbar: {row.FileName}",
+                string.Format(Strings.T("notify.no_nexus_id"), row.FileName),
                 NotificationLevel.Info);
             return;
         }
