@@ -129,15 +129,18 @@ public sealed partial class WorkshopViewModel : ObservableObject
             {
                 if (string.IsNullOrEmpty(row.PreviewUrl)) continue;
                 if (row.Cover is not null) continue;
-                var path = await _covers.GetOrDownloadAsync(row.PreviewUrl);
-                if (path is null) continue;
+                var bytes = await _covers.GetOrDownloadBytesAsync(row.PreviewUrl);
+                if (bytes is null) continue;
                 try
                 {
-                    var bmp = await Task.Run(() =>
+                    // v1.18: Cover-Decode ueber Host-Baukasten (WebP/AVIF/DDS-
+                    // Fallbacks + Thread-Affinity werden vom Host erledigt).
+                    var bmp = await _host.Images.DecodeAsync(bytes);
+                    if (bmp is null)
                     {
-                        using var s = File.OpenRead(path);
-                        return new Bitmap(s);
-                    });
+                        _host.Logger.Debug("Workshop-Cover-Decode fuer {Id} fehlgeschlagen", row.PublishedFileId);
+                        continue;
+                    }
                     await Dispatcher.UIThread.InvokeAsync(() => row.Cover = bmp);
                 }
                 catch (Exception ex)
@@ -232,36 +235,65 @@ public sealed partial class WorkshopRow : ObservableObject
 
 /// <summary>Kleiner file-basierter Cover-Cache fuer Steam-Workshop-Preview-URLs.
 /// Cache-Key: SHA1 des vollen URLs. Wir nutzen keinen Referer — Steam-CDN
-/// braucht keinen. 5 MB Max pro Bild reicht auch fuer WQHD-Preview-Screenshots.</summary>
+/// braucht keinen. 5 MB Max pro Bild reicht auch fuer WQHD-Preview-Screenshots.
+///
+/// <para>v1.18: Reines HTTP-Download + Cache-Persistierung. Format-Convert
+/// (WebP → PNG, DDS → PNG, …) und Bitmap-Instantiation macht ab jetzt der
+/// zentrale Host-Baukasten <see cref="IImageDecoder"/> (Contracts v1.18+).
+/// Cache liefert Rohbytes zurueck.</para></summary>
 internal sealed class PreviewCoverCache
 {
     private readonly string _dir;
     private readonly HttpClient _http;
+    private readonly IHostServices _host;
 
     public PreviewCoverCache(IHostServices host, HttpClient http)
     {
+        _host = host;
         _dir = Path.Combine(host.PluginCacheDir, "workshop-covers");
         Directory.CreateDirectory(_dir);
         _http = http;
     }
 
-    public async Task<string?> GetOrDownloadAsync(string url)
+    /// <summary>Laed URL herunter (oder liest aus Cache) und liefert die
+    /// Rohbytes. Beim Cache-Miss: HTTP-GET, Magic-Byte-Check via
+    /// <see cref="IImageDecoder.LooksLikeImage"/> (verhindert dass eine
+    /// HTML-Login-Wall im Cache landet), atomarer tmp+move ins Cache-File.
+    /// Rueckgabe: Bytes oder null.</summary>
+    public async Task<byte[]?> GetOrDownloadBytesAsync(string url)
     {
         if (string.IsNullOrEmpty(url)) return null;
         var path = Path.Combine(_dir, Sha1(url) + ".img");
-        if (File.Exists(path) && new FileInfo(path).Length > 0) return path;
+        if (File.Exists(path) && new FileInfo(path).Length > 0)
+        {
+            try { return await File.ReadAllBytesAsync(path); }
+            catch (Exception ex)
+            {
+                _host.Logger.Debug(ex, "Workshop-Cover-Cache-Read fehlgeschlagen: {Path}", path);
+            }
+        }
         try
         {
             using var resp = await _http.GetAsync(url);
             if (!resp.IsSuccessStatusCode) return null;
             var bytes = await resp.Content.ReadAsByteArrayAsync();
             if (bytes.Length == 0) return null;
+            // Sanity: nicht cachen wenn's kein Bild ist (Login-Wall/HTML/JSON)
+            if (!_host.Images.LooksLikeImage(bytes))
+            {
+                _host.Logger.Debug("Workshop-URL liefert kein Bild — wird nicht gecached: {Url}", url);
+                return null;
+            }
             var tmp = path + $".tmp.{Guid.NewGuid():N}";
             await File.WriteAllBytesAsync(tmp, bytes);
             File.Move(tmp, path, overwrite: true);
-            return path;
+            return bytes;
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            _host.Logger.Debug(ex, "Workshop-Cover-Download fehlgeschlagen: {Url}", url);
+            return null;
+        }
     }
 
     private static string Sha1(string s)

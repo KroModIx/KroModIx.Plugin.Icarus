@@ -16,7 +16,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.17.0",
+        Version: "1.18.0",
         Author: "Kroste",
         Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
             "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
@@ -24,7 +24,8 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look. " +
             "v1.7.0: grüner ↑-Badge bei neuen Nexus-Einträgen (IUpdateNotifier). " +
             "v1.16.0: DE+EN-Uebersetzung aller User-facing Strings. " +
-            "v1.17.0: Steam-Workshop-Tab (Consumer fuer Host-Contract IHostServices.Workshop) + sprachabhaengige KI-Prompts.");
+            "v1.17.0: Steam-Workshop-Tab (Consumer fuer Host-Contract IHostServices.Workshop) + sprachabhaengige KI-Prompts. " +
+            "v1.18.0: Cover-Decode ueber Host-IImageDecoder-Baukasten (Contracts v1.18.0).");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {

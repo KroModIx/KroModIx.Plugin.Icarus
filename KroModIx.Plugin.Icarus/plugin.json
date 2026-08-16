@@ -2,12 +2,12 @@
   "schema": 1,
   "id": "kroste.icarus",
   "displayName": "Icarus Mod-Manager",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "author": "Kroste",
-  "description": "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods + Steam-Workshop-Abos gemeinsam gelistet, Nexus-Mods-Katalog mit persönlichem API-Key (Browser-Download → Watch-Ordner → Install), Premium-Direct-Download, Detail-Dialog mit KI-Zusammenfassung, Auto-Refresh, Backup/Restore. v1.17.0: Steam-Workshop-Tab (Consumer fuer Host-Contract IHostServices.Workshop, Discovery + Enrichment via Steam-Web-API) + sprachabhaengige KI-Prompts. v1.16.0: DE+EN-Uebersetzung aller User-facing Strings. v1.15.1: grüner ↑-Badge nur noch bei echten Mod-Updates.",
+  "description": "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods + Steam-Workshop-Abos gemeinsam gelistet, Nexus-Mods-Katalog mit persönlichem API-Key (Browser-Download → Watch-Ordner → Install), Premium-Direct-Download, Detail-Dialog mit KI-Zusammenfassung, Auto-Refresh, Backup/Restore. v1.18.0: Cover-Decode ueber Host-IImageDecoder-Baukasten (Contracts v1.18.0). v1.17.0: Steam-Workshop-Tab (Consumer fuer Host-Contract IHostServices.Workshop, Discovery + Enrichment via Steam-Web-API) + sprachabhaengige KI-Prompts. v1.16.0: DE+EN-Uebersetzung aller User-facing Strings. v1.15.1: grüner ↑-Badge nur noch bei echten Mod-Updates.",
   "assembly": "KroModIx.Plugin.Icarus.dll",
   "entryType": "KroModIx.Plugin.Icarus.IcarusPlugin",
-  "minHostVersion": "1.17.0",
+  "minHostVersion": "1.18.0",
   "targets": [
     {
       "gameId": "icarus",

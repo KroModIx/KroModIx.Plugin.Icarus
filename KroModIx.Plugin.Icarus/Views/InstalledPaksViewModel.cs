@@ -236,18 +236,29 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         try
         {
             var localPath = Path.Combine(_paths.NexusCoverDir, $"{modId}.jpg");
-            if (!File.Exists(localPath))
+            byte[]? bytes = null;
+            if (File.Exists(localPath) && new FileInfo(localPath).Length > 0)
+            {
+                bytes = await File.ReadAllBytesAsync(localPath);
+            }
+            else
             {
                 using var http = _host.CreateHttpClient("nexus-covers");
-                var bytes = await http.GetByteArrayAsync(pictureUrl);
-                Directory.CreateDirectory(_paths.NexusCoverDir);
-                await File.WriteAllBytesAsync(localPath, bytes);
+                bytes = await http.GetByteArrayAsync(pictureUrl);
+                if (bytes.Length > 0)
+                {
+                    Directory.CreateDirectory(_paths.NexusCoverDir);
+                    await File.WriteAllBytesAsync(localPath, bytes);
+                }
             }
-            var bmp = await Task.Run(() =>
+            if (bytes is null || bytes.Length == 0) return;
+            // v1.18: Cover-Decode ueber Host-Baukasten.
+            var bmp = await _host.Images.DecodeAsync(bytes);
+            if (bmp is null)
             {
-                using var s = File.OpenRead(localPath);
-                return new Bitmap(s);
-            });
+                _host.Logger.Debug("Installed-Cover-Decode fehlgeschlagen fuer {Id}", modId);
+                return;
+            }
             await Dispatcher.UIThread.InvokeAsync(() => row.Cover = bmp);
         }
         catch (Exception ex)
