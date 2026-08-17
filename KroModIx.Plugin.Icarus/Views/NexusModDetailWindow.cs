@@ -184,15 +184,33 @@ public sealed class NexusModDetailWindow : Window
         // Beschreibung
         var descTitle = new TextBlock { Text = Strings.T("detail.section.description"), Margin = new Thickness(0, 8, 0, 6) };
         descTitle.Classes.Add("section-label");
-        var desc = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        desc.Bind(TextBlock.TextProperty, new Binding(nameof(NexusModDetailViewModel.Description)));
 
+        // v1.19.1: Rich-HTML-Rendering via _host.Descriptions.CreateRichView
+        // (HtmlPanel) statt Plain-Text-TextBlock. Fallback wenn noch nicht
+        // fertig geladen: kurzer Loading-TextBlock (Description enthaelt
+        // dann noch den Placeholder oder Error-Text).
+        var richHost = new ContentControl();
+        richHost.Bind(ContentControl.ContentProperty,
+            new Binding(nameof(NexusModDetailViewModel.DescriptionView)));
+
+        var loadingFallback = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        loadingFallback.Classes.Add("muted");
+        loadingFallback.Bind(TextBlock.TextProperty,
+            new Binding(nameof(NexusModDetailViewModel.Description)));
+        loadingFallback.Bind(TextBlock.IsVisibleProperty,
+            new Binding(nameof(NexusModDetailViewModel.DescriptionView))
+            {
+                Converter = new Avalonia.Data.Converters.FuncValueConverter<Control?, bool>(
+                    c => c is null),
+            });
+
+        var descStack = new StackPanel { Children = { richHost, loadingFallback } };
         var descCard = new Border
         {
             Padding = new Thickness(14),
             [!Border.BackgroundProperty] = new DynamicResourceExtension("KrosteSurfaceBrush"),
             CornerRadius = new CornerRadius(8),
-            Child = desc,
+            Child = descStack,
         };
 
         var scrollContent = new StackPanel

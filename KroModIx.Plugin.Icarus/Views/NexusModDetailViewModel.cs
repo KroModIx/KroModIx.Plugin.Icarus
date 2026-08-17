@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using KroModIx.Plugin.Contracts;
@@ -93,6 +95,11 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
     [ObservableProperty] private string _updatedText = "";
     [ObservableProperty] private string _category = "";
     [ObservableProperty] private string _description = "";
+    // v1.19.1: Rich-HTML-View statt Plain-Text-TextBlock. Wird vom
+    // Descriptions-Baukasten (Host v1.21+) erzeugt und im Detail-Window
+    // per ContentControl.Content angezeigt. Plain-Text-Version bleibt in
+    // Description fuer AI-Prompts + Loading-Placeholder.
+    [ObservableProperty] private Control? _descriptionView;
     [ObservableProperty] private string _statusText = Strings.T("detail.status.loading");
     [ObservableProperty] private bool _isLoading = true;
     [ObservableProperty] private bool _containsAdultContent;
@@ -131,11 +138,29 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
             UpdatedText = detail.UpdatedUtc.ToLocalTime().ToString("g");
             ContainsAdultContent = detail.ContainsAdultContent;
 
-            Description = _host.Descriptions.ToPlainText(detail.DescriptionHtml);
-            if (string.IsNullOrWhiteSpace(Description))
+            var html = detail.DescriptionHtml ?? "";
+            if (string.IsNullOrWhiteSpace(html))
+            {
                 Description = string.IsNullOrWhiteSpace(detail.Summary)
                     ? Strings.T("detail.desc_no_content")
                     : detail.Summary;
+                DescriptionView = null;
+            }
+            else
+            {
+                // Plain-Text bleibt fuer AI-Prompts (der Prompt braucht keinen
+                // HTML-Ballast). Rich-View fuer die UI-Anzeige.
+                Description = _host.Descriptions.ToPlainText(html);
+                if (string.IsNullOrWhiteSpace(Description))
+                    Description = string.IsNullOrWhiteSpace(detail.Summary)
+                        ? Strings.T("detail.desc_no_content")
+                        : detail.Summary;
+                var richHtml = _host.Descriptions.ToHtml(html);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    DescriptionView = _host.Descriptions.CreateRichView(richHtml);
+                });
+            }
 
             Category = await _categories.GetCategoryNameAsync(detail.CategoryId);
             StatusText = $"v{detail.Version} · {(detail.Available ? Strings.T("detail.status.available") : Strings.T("detail.status.unavailable"))}";

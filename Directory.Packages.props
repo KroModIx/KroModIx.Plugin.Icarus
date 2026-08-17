@@ -1,8 +1,9 @@
 <Project>
   <ItemGroup>
-    <!-- v1.20.0: IDescriptionParser-Baukasten (IHostServices.Descriptions) —
-         strippt HTML UND BBCode, loest plugin-lokale HtmlStrip-Implementation ab. -->
-    <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.20.0" />
+    <!-- v1.21.0: Rich-HTML-Renderer via _host.Descriptions.CreateRichView
+         (HtmlPanel im Detail-Dialog). BBCode wird zu HTML aufgeloest,
+         Bold/Farben/Bilder/Listen inline sichtbar. -->
+    <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.21.0" />
     <PackageVersion Include="Avalonia" Version="12.1.0" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
