@@ -11,7 +11,8 @@ public sealed record NexusModDetail(
     string Author,
     string Summary,
     /// <summary>HTML-Description (mit &lt;p&gt;, &lt;br /&gt;, &lt;a&gt;, &lt;h1&gt; usw.).
-    /// Vor Anzeige mit <see cref="HtmlStrip.ToPlainText"/> säubern.</summary>
+    /// Vor Anzeige mit <c>_host.Descriptions.ToPlainText</c> säubern
+    /// (zentraler Baukasten Contracts v1.19.0 — strippt HTML UND BBCode).</summary>
     string DescriptionHtml,
     string Version,
     string PictureUrl,

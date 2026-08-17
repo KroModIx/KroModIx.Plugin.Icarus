@@ -131,7 +131,7 @@ public sealed partial class NexusModDetailViewModel : ObservableObject
             UpdatedText = detail.UpdatedUtc.ToLocalTime().ToString("g");
             ContainsAdultContent = detail.ContainsAdultContent;
 
-            Description = HtmlStrip.ToPlainText(detail.DescriptionHtml);
+            Description = _host.Descriptions.ToPlainText(detail.DescriptionHtml);
             if (string.IsNullOrWhiteSpace(Description))
                 Description = string.IsNullOrWhiteSpace(detail.Summary)
                     ? Strings.T("detail.desc_no_content")
