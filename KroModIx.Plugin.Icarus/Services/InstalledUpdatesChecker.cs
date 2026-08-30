@@ -96,18 +96,10 @@ public sealed class InstalledUpdatesChecker
         return updatedCount;
     }
 
+    /// <summary>Delegiert an den Contracts-Baukasten (v1.27). Der frueher
+    /// hier stehende Eigenbau warf Suffixe weg und gab bei unparsebarem
+    /// Format still false zurueck — Versionen wie "3" oder "1.2.3b"
+    /// bekamen damit NIE ein Update gemeldet, ohne eine Zeile Log.</summary>
     private static bool IsVersionNewer(string candidate, string installed)
-    {
-        var c = StripSuffix(candidate.TrimStart('v'));
-        var i = StripSuffix(installed.TrimStart('v'));
-        if (!System.Version.TryParse(c, out var cV)) return false;
-        if (!System.Version.TryParse(i, out var iV)) return false;
-        return cV > iV;
-
-        static string StripSuffix(string s)
-        {
-            var idx = s.IndexOfAny(new[] { '-', '+' });
-            return idx > 0 ? s.Substring(0, idx) : s;
-        }
-    }
+        => VersionCompare.IsNewer(candidate, installed);
 }
