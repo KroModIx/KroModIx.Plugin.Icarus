@@ -23,6 +23,7 @@ namespace KroModIx.Plugin.Icarus.Views;
 public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposable
 {
     private readonly PakInstallService _installer;
+    private readonly EventHandler<string> _installedHandler;
     private readonly PakBackupService _backup;
     private readonly IcarusPaths _paths;
     private readonly DownloadEventBus _downloadBus;
@@ -64,8 +65,13 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         SetupWatchers();
         RefreshCommand.Execute(null);
 
-        _downloadBus.ModInstalled += (_, _) =>
-            Dispatcher.UIThread.Post(() => Refresh());
+        // Handler als Feld statt Lambda: nur so kann Dispose wieder
+        // abmelden. Als Lambda hielt der Event-Bus diese VM fuer die
+        // restliche Session am Leben, nachdem der Host-Tab-Cache sie
+        // verworfen hat (Sprachwechsel, Plugin-State-Wechsel) — samt
+        // geladener Cover-Bitmaps, und jeder Install refreshte die Leichen mit.
+        _installedHandler = (_, _) => Dispatcher.UIThread.Post(() => Refresh());
+        _downloadBus.ModInstalled += _installedHandler;
     }
 
     public string ModsDir { get; }
@@ -742,6 +748,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
 
     public void Dispose()
     {
+        _downloadBus.ModInstalled -= _installedHandler;
         _manualWatcher?.Dispose();
         _workshopWatcher?.Dispose();
     }
