@@ -49,7 +49,7 @@ public sealed class NexusUpdateTracker
                 Log.Warn("Nexus last-seen unparsbar ({Raw}) — neu setzen", raw);
             }
             var now = DateTime.UtcNow;
-            File.WriteAllText(LastSeenPath, now.ToString("o", CultureInfo.InvariantCulture));
+            WriteAtomic(now);
             return null;
         }
         catch (Exception ex)
@@ -57,6 +57,18 @@ public sealed class NexusUpdateTracker
             Log.Warn(ex, "Konnte Nexus last-seen nicht lesen/schreiben");
             return null;
         }
+    }
+
+    /// <summary>Baseline atomar schreiben: erst .tmp, dann Move mit
+    /// overwrite. Ein direkter WriteAllText aufs Ziel hinterlaesst bei einem
+    /// Crash mittendrin eine halb geschriebene Datei — die ist beim naechsten
+    /// Start unparsbar, die Baseline springt auf "jetzt" und der Nexus-Badge
+    /// verschluckt alles, was zwischenzeitlich neu war.</summary>
+    private void WriteAtomic(DateTime stamp)
+    {
+        var tmp = LastSeenPath + ".tmp";
+        File.WriteAllText(tmp, stamp.ToString("o", CultureInfo.InvariantCulture));
+        File.Move(tmp, LastSeenPath, overwrite: true);
     }
 
     /// <summary>Wird vom Nexus-Tab beim Öffnen aufgerufen: setzt die Baseline
@@ -67,7 +79,7 @@ public sealed class NexusUpdateTracker
         try
         {
             Directory.CreateDirectory(_paths.NexusCacheDir);
-            File.WriteAllText(LastSeenPath, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+            WriteAtomic(DateTime.UtcNow);
         }
         catch (Exception ex)
         {
