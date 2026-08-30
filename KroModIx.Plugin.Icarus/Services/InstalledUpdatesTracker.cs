@@ -65,8 +65,9 @@ public sealed class InstalledUpdatesTracker
         {
             var tmp = _cachePath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(_state));
-            if (File.Exists(_cachePath)) File.Delete(_cachePath);
-            File.Move(tmp, _cachePath);
+            // Move mit overwrite — Delete-dann-Move hinterlaesst bei einem
+            // Crash dazwischen gar keine Datei.
+            File.Move(tmp, _cachePath, overwrite: true);
         }
         catch (Exception ex)
         {
