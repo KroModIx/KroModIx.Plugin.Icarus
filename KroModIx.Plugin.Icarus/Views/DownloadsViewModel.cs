@@ -107,6 +107,29 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         });
     }
 
+    /// <summary>Snapshot VOR jedem File-Write (Kernprinzip 6). Fehler
+    /// duerfen den Install NIEMALS blockieren — der User will installieren,
+    /// nicht den Backup-Service debuggen. Zurueckspielen laeuft ueber das
+    /// Backups-Fenster (Sidebar-Kontextmenue), bewusst ohne Auto-Rollback.</summary>
+    private async Task TrySnapshotAsync(string label)
+    {
+        try
+        {
+            var dirs = new List<string>();
+            if (Directory.Exists(_installer.ModsDir)) dirs.Add(_installer.ModsDir);
+            if (dirs.Count == 0) return;
+            var gameKey = _installer.ModsDir;
+            await _host.Backup.CreateSnapshotAsync(
+                pluginId: "kroste.icarus", gameKey: gameKey,
+                directories: dirs, label: label);
+            await _host.Backup.PruneAsync("kroste.icarus", gameKey, keepLast: 10);
+        }
+        catch (Exception ex)
+        {
+            _host.Logger.Warn(ex, "Snapshot fehlgeschlagen (Install laeuft trotzdem): {Label}", label);
+        }
+    }
+
     [RelayCommand]
     private void Refresh()
     {
@@ -215,11 +238,12 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void InstallRow(DownloadRow? row)
+    private async Task InstallRowAsync(DownloadRow? row)
     {
         if (row is null) return;
         try
         {
+            await TrySnapshotAsync($"Vor Install von {row.Source.FileName}");
             var installed = _installer.Install(row.Source.FilePath, overwrite: true);
             _host.Notifications.Notify(Strings.T("notify.installed_prefix") + installed.FileName, NotificationLevel.Success);
             _downloadBus.RaiseModInstalled(installed.FileName);
@@ -236,7 +260,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
     /// overwrite=true damit Updates funktionieren. Fehler pro Row werden
     /// geloggt, der Loop läuft weiter.</summary>
     [RelayCommand]
-    private void InstallAll()
+    private async Task InstallAllAsync()
     {
         var rows = Rows.ToArray();
         if (rows.Length == 0)
@@ -244,6 +268,9 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
             _host.Notifications.Notify(Strings.T("notify.no_downloads_install"), NotificationLevel.Info);
             return;
         }
+        // Bulk: EIN Snapshot vor der ganzen Schleife, nicht pro Row — beim
+        // Rollback will der User zurueck auf den Stand VOR dem Batch.
+        await TrySnapshotAsync($"Vor Bulk-Install ({rows.Length} Archive)");
         using var scope = _host.BeginProgress(string.Format(Strings.T("progress.install_downloads"), rows.Length));
         int done = 0, failed = 0;
         for (int i = 0; i < rows.Length; i++)
