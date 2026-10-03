@@ -38,13 +38,13 @@ public static class Strings
         ["tab.downloads"] = "Downloads",
 
         // Workshop-Tab (v1.17)
-        ["workshop.no_steam_app"] = "Kein Steam-Spiel — Workshop nicht verfuegbar.",
-        ["workshop.host_too_old"] = "Workshop-Contract benoetigt Host v1.17+.",
+        ["workshop.no_steam_app"] = "Kein Steam-Spiel — Workshop nicht verfügbar.",
+        ["workshop.host_too_old"] = "Workshop-Contract benötigt Host v1.17+.",
         ["workshop.scanning"] = "Workshop-Ordner scannen …",
         ["workshop.no_items"] = "Keine Workshop-Abos gefunden.",
         ["workshop.count"] = "{0} Workshop-Item(s) abonniert.",
         ["workshop.filter_placeholder"] = "🔍 Filter nach Titel, Autor oder ID …",
-        ["workshop.btn_open_steam"] = "↗  In Steam oeffnen",
+        ["workshop.btn_open_steam"] = "↗  In Steam öffnen",
         ["workshop.btn_open_browser"] = "🌐  Community",
         ["workshop.btn_open_folder"] = "📂  Ordner",
 
