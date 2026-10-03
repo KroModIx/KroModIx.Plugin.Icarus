@@ -6,6 +6,20 @@
     <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.29.0" />
     <PackageVersion Include="Avalonia" Version="12.1.0" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- v1.23.0: ZIP/RAR/7z im Downloads-Tab. Nexus liefert Icarus-Mods als
+         Archiv (EXMODZ + UE4SS-Lua in einem Paket), nicht als nacktes PAK.
+         1.0.0 ist Pflicht: 0.42 hat GHSA-6c8g-7p36-r338 und bricht den
+         Build wegen TreatWarningsAsErrors. -->
+    <PackageVersion Include="SharpCompress" Version="1.0.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
+
+    <!-- Tests (v1.23.0): Fixture-Projekt fuer NexusFileNameParser und
+         die Archiv-Erkennung — Kernprinzip 8 verlangt reale Dateinamen
+         als Testfaelle, weil ein stiller Parser-Fehlschlag das ganze
+         Downloads-Enrichment tot stellt, ohne eine Zeile zu loggen. -->
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="FluentAssertions" Version="[7.2.2,8.0.0)" />
   </ItemGroup>
 </Project>

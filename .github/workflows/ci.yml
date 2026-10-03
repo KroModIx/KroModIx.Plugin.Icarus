@@ -27,3 +27,4 @@ jobs:
             --store-password-in-clear-text
           dotnet restore
       - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release --logger "console;verbosity=minimal"

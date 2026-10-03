@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="KroModIx.Plugin.Icarus/KroModIx.Plugin.Icarus.csproj" />
+  <Project Path="KroModIx.Plugin.Icarus.Tests/KroModIx.Plugin.Icarus.Tests.csproj" />
 </Solution>
