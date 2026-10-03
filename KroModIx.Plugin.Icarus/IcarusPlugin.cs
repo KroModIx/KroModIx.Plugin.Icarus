@@ -17,18 +17,17 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.19.1",
+        Version: "1.23.0",
         Author: "Kroste",
-        Description: "Mod-Manager für Icarus (RocketWerkz). Manuelle PAK-Mods im " +
-            "Content/Paks/mods-Ordner UND Steam-Workshop-Abos werden gemeinsam gelistet " +
-            "(Workshop-Rows read-only). Nexus-Mods-Katalog mit Personal-API-Key. " +
-            "Auto-Refresh via FileSystemWatcher, Backup/Restore, Kroste-Card-Look. " +
-            "v1.7.0: grüner ↑-Badge bei neuen Nexus-Einträgen (IUpdateNotifier). " +
-            "v1.16.0: DE+EN-Uebersetzung aller User-facing Strings. " +
-            "v1.17.0: Steam-Workshop-Tab (Consumer fuer Host-Contract IHostServices.Workshop) + sprachabhaengige KI-Prompts. " +
-            "v1.18.0: Cover-Decode ueber Host-IImageDecoder-Baukasten (Contracts v1.18.0). " +
-            "v1.19.0: HTML/BBCode-Description-Parser aus _host.Descriptions (zentraler Baukasten Contracts v1.20). " +
-            "v1.19.1: Detail-Dialog rendert Rich-HTML via _host.Descriptions.CreateRichView (Host v1.21 HtmlRenderer-Baukasten) — Bold/Italic/Farben/Bilder/Listen inline sichtbar.");
+        Description:
+            "Mod-Manager für Icarus (RocketWerkz). Vier Mod-Arten in einer Ansicht: " +
+            "manuelle PAKs im Content/Paks/mods-Ordner, Steam-Workshop-Abos (read-only), " +
+            "UE4SS-Lua-Mods und — ab v1.24 — Datentabellen-Mods (.EXMODZ). " +
+            "Nexus-Katalog mit persönlichem API-Key, Detail-Dialog mit KI-Zusammenfassung, " +
+            "Update-Discovery, Backup-Snapshot vor jedem Install, DE+EN. " +
+            "v1.23.0: Mod-Archive (ZIP/RAR/7z) werden ausgepackt und einsortiert; " +
+            "UE4SS-Loader auf Knopfdruck; unter Linux setzt das Plugin die " +
+            "dwmapi-Umleitung im Proton-Präfix, ohne die UE4SS stillschweigend nicht lädt.");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {

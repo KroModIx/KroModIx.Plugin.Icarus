@@ -5,9 +5,10 @@
 
 **Icarus** (RocketWerkz) Mod-Manager als Plugin für den
 [KroModIx](https://github.com/KroModIx/KroModIx). Nexus-Mods-Katalog mit
-Direct-Download (Premium) oder Browser-Weg (Free), Manual-PAKs und
-Steam-Workshop-Abos gemeinsam gelistet, Update-Discovery für installierte
-Mods, KI-Zusammenfassung im Detail-Dialog.
+Direct-Download (Premium) oder Browser-Weg (Free), PAK-Mods, Steam-Workshop-Abos
+und UE4SS-Lua-Mods gemeinsam gelistet, Mod-Archive (ZIP/RAR/7z) werden
+ausgepackt und einsortiert, Update-Discovery für installierte Mods,
+KI-Zusammenfassung im Detail-Dialog.
 
 ## Voraussetzungen
 
@@ -26,18 +27,38 @@ das Plugin nicht.
 
 - Manuelle PAK-Mods: `<Icarus-Install>/Icarus/Content/Paks/mods/`
 - Steam-Workshop-Abos: `<Library>/steamapps/workshop/content/1149460/`
+- UE4SS-Lua-Mods: `<Icarus-Install>/Icarus/Binaries/Win64/Mods/`
 
-## Neu in v1.16.0
-- **DE+EN-Übersetzung** aller User-facing Strings (164 Keys) — Tab-Labels,
-  Buttons, Placeholders, Tooltips, Statusmeldungen, Notifications, Dialoge,
-  Detail-Dialog-Sektionen. Sprachwechsel im Host schaltet nach Kachel-Reselect
-  (Host-Tab-Cache invalidiert seit v1.14.7) live um.
+## Neu in v1.23.0
+
+**Mod-Archive.** Bisher nahm das Plugin nur nackte `.pak`-Dateien an. Nexus
+liefert Icarus-Mods aber als ZIP, RAR oder 7z — oft mit mehreren Teilen in
+einem Paket. Diese Archive werden jetzt ausgepackt und einsortiert: PAKs in
+den Mods-Ordner, Lua-Mods zu UE4SS.
+
+**UE4SS-Lua-Mods.** Der Lua-Mod-Loader lässt sich aus dem Plugin heraus
+installieren, Lua-Mods stehen in derselben Liste wie die PAKs und lassen sich
+dort ein- und ausschalten.
+
+**Unter Linux: die DLL-Umleitung.** UE4SS hängt sich über eine eigene
+`dwmapi.dll` ein, Proton bevorzugt aber seine eigene — ohne Umleitung startet
+der Loader nicht, und zwar ohne jede Fehlermeldung. Der Installiert-Tab sagt,
+wenn das der Fall ist, und setzt die Umleitung auf einen Klick.
+
+**Noch nicht dabei:** Datentabellen-Mods (`.EXMODZ`, die Pakete des Icarus
+Mod Managers). Liegt so eine Datei in einem Archiv, sagt das Plugin es — statt
+sie stillschweigend zu überspringen. Der Einbau kommt mit v1.24.0.
 
 ## Features
 
 ### Installiert-Tab
-- Manuelle PAKs + Steam-Workshop-Abos gemeinsam gelistet, Workshop-Rows
-  farblich markiert (Steam verwaltet sie, wir nur lesen)
+- Manuelle PAKs, Steam-Workshop-Abos **und UE4SS-Lua-Mods** gemeinsam
+  gelistet, jede Quelle mit eigenem Badge (Workshop-Rows sind read-only,
+  Steam verwaltet sie)
+- **UE4SS-Karte** oben: sagt, ob der Loader installiert ist, ob die
+  DLL-Umleitung steht und wann der Loader zuletzt wirklich geladen wurde
+  (das verrät nur seine `UE4SS.log` — installierte Dateien allein beweisen
+  es nicht). Dazu „⬇ UE4SS installieren" und „🔧 DLL-Umleitung setzen".
 - Cover-Enrichment via Nexus für Manual-PAKs mit erkennbarer Nexus-Mod-Id
   im Filename
 - **🔄 Updates prüfen** — vergleicht installierte Version (aus Filename)
@@ -46,8 +67,8 @@ das Plugin nicht.
   (Nexus-Rate-Limit-Rücksicht)
 - **🔍 Details** per Doppelklick oder Button
 - **Multi-Select** mit Bulk-Aktivieren/Deaktivieren/Deinstallieren
-- Filter (Suche + Manual/Workshop-Toggles), F5/Ctrl+F/Del-Shortcuts,
-  Drag&Drop von .pak-Files
+- Filter (Suche + Manual/Workshop/Lua-Toggles), F5/Ctrl+F/Del-Shortcuts,
+  Drag&Drop von `.pak`-, `.zip`-, `.rar`- und `.7z`-Dateien
 - Backup + Restore mit Enabled-State-Manifest
 
 ### Nexus-Tab (Katalog)
@@ -59,8 +80,11 @@ das Plugin nicht.
 - Free-User: „↗ Nexus öffnen" → Browser mit Slow-Wall
 
 ### Downloads-Tab
-- Alle heruntergeladenen `.pak`-Files mit Nexus-Enrichment (Cover, Autor,
-  Version, Summary — via `mod_id` aus Filename)
+- Alle heruntergeladenen Mod-Dateien (`.pak`, `.zip`, `.rar`, `.7z`) mit
+  Nexus-Enrichment (Cover, Autor, Version, Summary — via `mod_id` aus dem
+  Dateinamen)
+- Bei Archiven steht in der Row, was drin ist („1 PAK · 1 Lua-Mod"), bevor
+  du installierst
 - **📥 Alle installieren** — Bulk-Install
 - Pro Row: Installieren + 🔍 Details + Löschen
 - Auto-Refresh via FileSystemWatcher
@@ -115,6 +139,36 @@ Aufbewahrt werden die letzten zehn Snapshots pro Spiel.
 
 Schlägt ein Snapshot fehl, läuft der Install trotzdem durch (mit Log-Eintrag)
 — das Backup ist ein Netz, kein Türsteher.
+
+## UE4SS einrichten (Lua-Mods)
+
+Manche Icarus-Mods bestehen aus einem Lua-Skript und brauchen dafür
+**UE4SS**, den Lua-Mod-Loader für Unreal-Engine-Spiele. Der Installiert-Tab
+führt dich durch:
+
+1. **„⬇ UE4SS installieren"** — lädt die neueste stabile Ausgabe von
+   [UE4SS-RE/RE-UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) und entpackt sie
+   nach `Icarus/Binaries/Win64/`. Derselbe Knopf ist später der Update-Weg;
+   deine `UE4SS-settings.ini` und `Mods/mods.txt` bleiben dabei stehen.
+2. **„🔧 DLL-Umleitung setzen"** (nur Linux) — erscheint, wenn die Umleitung
+   fehlt. Ein Klick trägt sie in die `user.reg` des Proton-Präfix ein, sie
+   wirkt beim nächsten Spielstart.
+3. **Spiel starten.** Danach steht in der UE4SS-Karte, wann der Loader
+   zuletzt geladen wurde. Bleibt dort „Noch keine UE4SS.log", ist er nicht
+   eingehängt worden.
+
+**Warum Schritt 2 nötig ist:** Proton bringt seine eigene `dwmapi.dll` mit
+und bevorzugt sie gegenüber der von UE4SS. Ohne Umleitung passiert
+schlicht nichts — das Spiel startet normal, es gibt keine Fehlermeldung, und
+die Lua-Mods tun einfach nicht, was sie sollen.
+
+**Eine Grenze, die du kennen solltest:** legt Proton das Präfix neu an
+(Proton-Wechsel, Reset über „Spieldateien überprüfen"), ist die Umleitung
+weg. Das Plugin prüft sie bei jedem Aktualisieren neu und meldet sich
+wieder — es merkt sich den Zustand bewusst nicht.
+
+Nur der **Host** einer Welt braucht Lua-Mods; in der Welt eines Freundes
+muss er sie installiert haben, nicht du.
 
 ## Lizenz
 
