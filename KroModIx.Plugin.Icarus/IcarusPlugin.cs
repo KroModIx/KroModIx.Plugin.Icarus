@@ -18,17 +18,19 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.23.0",
+        Version: "1.24.0",
         Author: "Kroste",
         Description:
-            "Mod-Manager für Icarus (RocketWerkz). Vier Mod-Arten in einer Ansicht: " +
+            "Mod-Manager für Icarus (RocketWerkz). Alle vier Mod-Arten in einer Ansicht: " +
             "manuelle PAKs im Content/Paks/mods-Ordner, Steam-Workshop-Abos (read-only), " +
-            "UE4SS-Lua-Mods und — ab v1.24 — Datentabellen-Mods (.EXMODZ). " +
+            "UE4SS-Lua-Mods und Datentabellen-Mods (.EXMODZ). " +
             "Nexus-Katalog mit persönlichem API-Key, Detail-Dialog mit KI-Zusammenfassung, " +
             "Update-Discovery, Backup-Snapshot vor jedem Install, DE+EN. " +
-            "v1.23.0: Mod-Archive (ZIP/RAR/7z) werden ausgepackt und einsortiert; " +
-            "UE4SS-Loader auf Knopfdruck; unter Linux setzt das Plugin die " +
-            "dwmapi-Umleitung im Proton-Präfix, ohne die UE4SS stillschweigend nicht lädt.");
+            "v1.24.0: .EXMODZ werden gegen die installierte Spielversion zu einem " +
+            "gemeinsamen Pak gerechnet; nach einem Icarus-Update erkennt und meldet " +
+            "das Plugin, dass neu gebaut werden muss. " +
+            "v1.23.0: Mod-Archive (ZIP/RAR/7z) und UE4SS-Loader auf Knopfdruck; unter " +
+            "Linux setzt das Plugin die dwmapi-Umleitung im Proton-Präfix.");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {

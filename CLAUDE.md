@@ -11,119 +11,150 @@
 
 ## Aktueller Stand
 
+**v1.24.0 — Datentabellen-Mods (.EXMODZ):** damit sind alle vier
+Icarus-Mod-Arten abgedeckt (PAK, Workshop, UE4SS-Lua, Datentabellen).
+
+- **`Services/Pak/`** — Unreal-Pak-Leser und -Schreiber, portiert aus
+  **go-unrealpak** (MIT, Donovan C. Young). Leser: gespeichert + Zlib,
+  dreiteiliger Index, SHA1-Kette durchgesetzt. Schreiber: Pak v11,
+  unkomprimiert, reproduzierbare Ausgabe.
+- **`Services/Exmodz/`** — Manifest- und Archiv-Parser, Zeilen-Upsert auf die
+  Datentabellen, Merge, Ablage mit Staleness-Pruefung, Dienst-Fassade.
+  Portiert aus **lmms `internal/source/icarus`** (MIT, derselbe Autor).
+- **`PakModSource.Exmodz`** als vierte Quelle in derselben Liste.
+- **114 Tests**, davon zwei, die sich ohne Icarus-Installation
+  ueberspringen (`RealIcarusPakTests`) statt den CI-Lauf rot zu faerben.
+
+**Was gemessen ist, nicht angenommen** (03.10.2026, Spielwoche 252):
+
+1. Die echte `Content/Data/data.pak`: **299 von 299** Eintraegen
+   rekonstruiert, 42.274.800 Byte entpackt, 52 ms. Groesste Tabelle
+   `Items/D_ItemsStatic.json` mit 7.420.669 Byte.
+2. Ein Pak der **unabhaengigen** Referenz-Implementierung (lmm): 10 von 10
+   Eintraegen lesbar; ihr Mount-Point `../../../Icarus/Content/` und das
+   `data/`-Praefix fuer Tabellen deckt sich mit den uebernommenen Konstanten.
+3. Eigener Zusammenbau von OreDepot gegen lmms Ergebnis aus derselben Mod:
+   gleiche 10 Pfade, 2 Assets byte-identisch, 8 Tabellen inhaltsgleich nach
+   `JsonNode.DeepEquals`.
+4. JSON-Escaping: mit der Voreinstellung von `System.Text.Json` wuchs
+   `D_Traits/D_Itemable.json` von 1.863.773 auf 2.103.396 Byte (+12,9 %).
+   Mit `UnsafeRelaxedJsonEscaping` sind sechs der acht Tabellen
+   groessengleich zur Referenz.
+
+**Architektur-Entscheidungen, die der Code allein nicht hergibt:**
+
+- **EIN gemeinsames Pak fuer alle .EXMODZ, nicht eins je Mod.** Ein
+  Tabellen-Override ist immer die ganze Tabelle; getrennte Paks wuerden sich
+  ganztabellig ueberschatten. Im gemeinsamen Pak komponieren sie auf
+  Feldebene, und zwar kostenlos: die Bytes von Mod A wieder als Basis fuer
+  Mod B zu nehmen IST der Merge-Algorithmus. Assets koennen so nicht
+  komponieren — Pfad-Kollision ist Letzter-gewinnt plus Warnung.
+- **Die .EXMODZ bleiben im Plugin-Datenordner und gehen NICHT ins Spiel.**
+  Nur deshalb ist ein Neubau nach einem Spiel-Update moeglich — die Quelle
+  ist noch da.
+- **Staleness ueber den Pak-Index-Hash**, nicht ueber eine SHA256 der Datei:
+  der Hash steht im Footer, wird beim Oeffnen ohnehin gelesen und geprueft,
+  und aendert sich bei jeder Inhalts- oder Layout-Aenderung.
+- **Ein fehlgeschlagener Bau entfernt das alte Pak.** Bliebe es liegen, liefe
+  der User mit einem Stand aus einer frueheren Mod-Zusammenstellung weiter.
+- **Nur eine .EXMODZ je Archiv wird aufgenommen.** Bei OreDepot liegen
+  `OreDepot.EXMODZ` und `OreDepot_PTBR.EXMODZ` nebeneinander — dieselbe Mod,
+  anderer Item-Name. Beide wuerden dieselben Zeilen doppelt setzen. Genommen
+  wird der kuerzeste Dateiname.
+- **Fremde Merged-Paks werden gemeldet, nicht angefasst.**
+  `zzz_LMM_Merged_P.pak` kommt nach Alphabet hinter unserem und wuerde es bei
+  gemeinsamen Tabellen ueberstimmen. Es ist nicht unsere Datei.
+
+**Reihenfolge der Konstanten, die man nicht neu herleiten darf:** der
+Mount-Point `../../../Icarus/Content/`, das `data/`-Praefix fuer Tabellen (und
+NICHT fuer Assets), die `CurrentFile`-Abbildung `-` → `/`, und die Pak-Magic
+im Footer **vor** Version und Offsets. Alle vier sind in der Vorlage gegen
+echte, laufende Mod-Paks verifiziert und hier gegengeprueft (Beleg 2 und 3
+oben).
+
+**Die Reihenfolge der Typ-Erkennung** in `IcarusArchive.DetectKind` ist
+ebenfalls load-bearing: erst die Unreal-Pak-Magic im Footer, dann die
+Archiv-Signaturen am Dateianfang. Umgekehrt waere es angreifbar — ein PAK
+beginnt mit den Daten seiner ersten Datei, die zufaellig mit `PK` anfangen
+koennen.
+
+---
+
 **v1.23.0 — Mod-Archive + UE4SS-Lua-Mods:**
 
-- **`Services/Archive/IcarusArchive`** — Typ-Erkennung, Archiv-Inspektion,
-  Einordnung in PAK / `.EXMODZ` / UE4SS-Lua, Zip-Slip-Schutz. Die Erkennung
-  laeuft ueber **Magic-Bytes**, und zwar in dieser Reihenfolge: erst die
-  Unreal-Pak-Magic `0x5A6F12E1` im Footer (im letzten KiB gesucht, die
-  genaue Position haengt an der Pak-Version), dann die drei
-  Archiv-Signaturen am Dateianfang. Umgekehrt waere es angreifbar — ein PAK
-  beginnt mit den Daten seiner ersten Datei, die zufaellig mit `PK` anfangen
-  koennen.
-- **`Services/Ue4ss/`** — vier Klassen: `Ue4ssPaths` (Win64 + Mods-Ordner
-  ueber `ModFolderDiscovery`, Loader-Erkennung, `UE4SS.log` als
-  Lade-Beleg), `Ue4ssBootstrapper` (GitHub-Release + Ausweich-URL, Muster
-  aus DSPs `BepInExBootstrapper`), `Ue4ssLuaModService` (Liste, Install aus
-  Archiv, Umschalten ueber `enabled.txt`, Deinstallieren),
-  `ProtonDllOverride` (dwmapi-Umleitung in der `user.reg`).
-- **`PakModSource.Ue4ssLua`** als dritte Quelle. Lua-Mods liegen in
-  derselben Liste wie die PAKs, damit sie Suche, Filter, Mehrfachauswahl
-  und Karten-Layout ohne eine zweite Liste bekommen. `InstalledPakMod`
-  zeigt dort mit `FilePath` auf einen **Ordner**, nicht auf eine Datei.
-- **`PakInstallService.InstallAny`** ist ab jetzt der Weg fuer alle
-  Aufrufer; `Install` bleibt fuer den reinen PAK-Fall. Rueckgabe ist
-  `ModInstallResult` (Listen statt eines Einzelwerts), weil ein Archiv
-  mehrere Dinge auf einmal mitbringt. `ModInstallReporter` meldet das
-  Ergebnis — eine Stelle fuer alle Tabs, damit ein Teil-Erfolg nicht je Tab
-  anders beschrieben wird.
-- **`DownloadPakAsync` heisst jetzt `DownloadModFileAsync`** und haengt kein
-  `.pak` mehr an.
-- **Testprojekt** `KroModIx.Plugin.Icarus.Tests` (66 Tests): Dateinamen-Parser
-  mit echten Namen, Archiv-Einordnung am OreDepot-Layout, Typ-Erkennung,
-  Zip-Slip, UE4SS-Pfade und -Dienst, DLL-Umleitung gegen einen Auszug aus
-  einer echten `user.reg`.
+- **`Services/Archive/IcarusArchive`** — Typ-Erkennung ueber Magic-Bytes,
+  Archiv-Inspektion, Einordnung in PAK / `.EXMODZ` / UE4SS-Lua,
+  Zip-Slip-Schutz (lehnt auch Laufwerksbuchstaben ab — ohne das war das
+  Verhalten plattformabhaengig).
+- **`Services/Ue4ss/`** — `Ue4ssPaths` (Win64 + Mods-Ordner ueber
+  `ModFolderDiscovery`, Loader-Erkennung, `UE4SS.log` als Lade-Beleg),
+  `Ue4ssBootstrapper` (GitHub-Release + Ausweich-URL, Muster aus DSPs
+  `BepInExBootstrapper`), `Ue4ssLuaModService` (Umschalten ueber
+  `enabled.txt`, `mods.txt` wird nur nachgezogen wenn die Zeile schon da
+  ist), `ProtonDllOverride`.
+- **`PakInstallService.InstallAny`** ist der Weg fuer alle Aufrufer;
+  `Install` bleibt fuer den reinen PAK-Fall. Rueckgabe ist
+  `ModInstallResult`, weil ein Archiv mehrere Dinge auf einmal mitbringt.
+  `ModInstallReporter` meldet Teil-Erfolge einheitlich.
+- **`DownloadPakAsync` heisst `DownloadModFileAsync`** und haengt kein `.pak`
+  mehr an.
 
 **Drei stille Fehler, die dabei behoben wurden** — alle hatten kein Symptom
 ausser Wirkungslosigkeit:
 
 1. `DownloadPakAsync` hing jedem Download ein `.pak` an. Aus
-   `OreDepot … yxOAgLyJG.zip` wurde `… .zip.pak`: der Dateiname passte nicht
-   mehr aufs Nexus-Muster (kein Enrichment, kein Cover, toter
-   Details-Knopf), und der Installer kopierte das ZIP unveraendert in den
-   Mods-Ordner, wo Icarus es nicht lesen kann. Deshalb erkennt
-   `IcarusArchive.DetectKind` den Typ am Inhalt — solche Altlasten liegen in
-   bestehenden Downloads-Ordnern.
+   `OreDepot … yxOAgLyJG.zip` wurde `… .zip.pak`: der Name passte nicht mehr
+   aufs Nexus-Muster (kein Enrichment, kein Cover, toter Details-Knopf), und
+   der Installer kopierte das ZIP unveraendert in den Mods-Ordner, wo Icarus
+   es nicht lesen kann.
 2. `NexusFileNameParser` verlangte ein abschliessendes `.pak` und kannte das
    Dash-Format nicht. Ein echter Nexus-ZIP fiel durch, `TryExtractModId` gab
-   `null`, der Enricher uebersprang die Row sauber. Jetzt beide Formate und
-   vier Endungen, jede optional mit angehaengtem `.pak` (Altlast).
+   `null`, der Enricher uebersprang die Row sauber.
 3. Der `FileSystemWatcher` im Downloads-Tab hatte einen `"*.pak"`-Filter und
    blieb damit bei genau dem Normalfall still stehen.
 
-**Architektur-Entscheidungen, die nicht offensichtlich sind:**
+**UE4SS-Entscheidungen:**
 
 - **Die DLL-Umleitung geht in die `user.reg` des Praefix, nicht in die
   Steam-Startoptionen.** Die verbreitete Anleitung setzt
-  `WINEDLLOVERRIDES="dwmapi=n,b"`. Das steht in Steams `localconfig.vdf`,
-  die ein laufender Steam-Client beim Beenden aus dem Speicher
-  zurueckschreibt — eine Aenderung von aussen waere verloren, solange Steam
-  laeuft, und das tut es, wenn der User gerade moddet.
+  `WINEDLLOVERRIDES="dwmapi=n,b"`. Das steht in Steams `localconfig.vdf`, die
+  ein laufender Steam-Client beim Beenden aus dem Speicher zurueckschreibt.
 - **Der UE4SS-Zustand wird bei jedem Refresh neu gelesen, nicht gemerkt.**
-  Steams Dateipruefung raeumt die Loader-DLLs weg, ein neu angelegtes
-  Praefix nimmt die Umleitung mit. Ein gemerkter Zustand wuerde dann „alles
-  in Ordnung" behaupten.
+  Steams Dateipruefung raeumt die Loader-DLLs weg, ein neu angelegtes Praefix
+  nimmt die Umleitung mit.
 - **`UE4SS.log` ist der einzige Lade-Beleg.** Installierte Dateien beweisen
   nur, dass der Loader da ist.
-- **Lua-Umschalten per Umbenennen, nicht Loeschen** (`enabled.txt` →
-  `enabled.txt.disabled`) — manche Mods legen dort Inhalt ab. Eine
-  **bestehende** Zeile in der `mods.txt` wird nachgezogen, weil UE4SS beide
-  Quellen auswertet und ein Ausschalten sonst wirkungslos bliebe; neue
-  Zeilen werden nicht angelegt.
-- **`.EXMODZ` wird gezaehlt und gemeldet, nicht uebersprungen.** Sonst
-  klickt der User „installieren", sieht Erfolg und wundert sich im Spiel.
 
 **Fruehere Versionen (verdichtet):** v1.22 Auto-Discover der Mod-Ordner ueber
 `ModFolderDiscovery` (Host v1.29). v1.21 Backup-Snapshot vor jedem Install.
-v1.20 Review-Fixes (VM meldet sich vom `DownloadEventBus` ab, atomare Saves,
-Versions-Vergleich aus den Contracts). v1.19 Description-Parser und
-Rich-HTML-Rendering ueber `_host.Descriptions`. v1.18 Cover-Decode ueber
-`_host.Images`. v1.17 Steam-Workshop-Tab ueber `_host.Workshop`. v1.16 DE+EN.
-v1.15 Nexus wandert in den Host (`_host.Nexus`), plugin-eigener
-Settings-Tab entfernt. v1.15.1 gruener Badge nur bei echten Mod-Updates.
-v0.2 Bug-Fix `~mods` → `mods` (Icarus weicht von der UE4-Konvention ab).
+v1.20 Review-Fixes. v1.19 Description-Parser und Rich-HTML ueber
+`_host.Descriptions`. v1.18 Cover-Decode ueber `_host.Images`. v1.17
+Steam-Workshop-Tab ueber `_host.Workshop`. v1.16 DE+EN. v1.15 Nexus wandert in
+den Host. v0.2 Bug-Fix `~mods` → `mods`.
 
 **Tabs (Order):** Installiert (0) · Nexus (10) · Workshop (15) · Downloads (20).
 
 ## Roadmap
 
-- **v1.24.0 — `.EXMODZ`-Unterstuetzung.** Der teure Teil, weil ein Pak
-  **geschrieben** werden muss. Lesen koennte `CUE4Parse` (auf nuget.org),
-  zum Schreiben gibt es dort nichts. Zwei Wege:
-  - **go-unrealpak portieren** (MIT, Donovan C. Young): `pak.go` +
-    `reader.go` + `writer.go` = 976 Zeilen Go ohne Tests.
-    `System.IO.Compression.ZLibStream` deckt die Kompression ab; Icarus'
-    `Content/Data/data.pak` ist Pak v11, 40 Tabellen unkomprimiert, 258 zlib.
-  - **`UnrealPak.exe` aufrufen** — so macht es IcarusStarlink. Unter Linux
-    hiesse das wine aus dem Plugin heraus. Nein.
-  Dazu die Merge-Logik aus lmms `internal/source/icarus` portieren (MIT,
-  ~1300 Zeilen ohne Tests). **Zwei Konstanten nicht neu herleiten, sondern
-  uebernehmen:** den Mount-Point und die `CurrentFile`-Abbildung `-` → `/`.
-  Beide sind dort byte-fuer-byte gegen zwei echte, laufende Mod-Paks
-  verifiziert.
-  **Ein Konzept fehlt dem Plugin ganz:** ein gemeinsames Merged-Pak fuer
-  alle `.EXMODZ`, gebaut gegen die aktuelle `data.pak`. Nicht ein Pak je Mod
-  — zwei Mods auf derselben Tabelle wuerden sich ganztabellig
-  ueberschatten. Dazu eine Staleness-Pruefung (SHA256 der `data.pak` neben
-  dem Merged-Pak), die den Neubau nach dem Woechentlich-Update ausloest.
 - **Host-Kandidat: DLL-Umleitung nach `IHostServices`.** `ProtonDllOverride`
   liegt bewusst in einer eigenen, abhaengigkeitsfreien Klasse. Jedes Plugin
   fuer ein Unreal-Spiel mit UE4SS braucht genau diese Funktion (Satisfactory,
   Schedule I) — nach Kernprinzip 4 gehoert sie in den Host, als etwa
   `IHostServices.ProtonPrefix.SetDllOverride(...)`. Dann wird die Wanderung
   ein Verschieben und kein Neuschreiben.
-- Optional: NXM-Protokoll-Handler fuer Free-User (braucht Host-Support, ein
-  Plugin kann sich nicht selbst als URL-Handler registrieren).
+- **Host-Kandidat: `Services/Pak`.** Der Unreal-Pak-Leser/-Schreiber ist
+  game-agnostisch (die Icarus-Konstanten liegen getrennt in
+  `UnrealPakFormat`). Satisfactory und jedes weitere UE-Spiel braeuchte ihn
+  identisch. Erst beim zweiten Verbraucher verschieben — jetzt waere es
+  Spekulation.
+- **Ladereihenfolge der Datentabellen-Mods aendern.** Der Store haelt sie
+  schon als geordnete Liste, und bei einem Feld-Konflikt gewinnt die untere.
+  Es fehlt nur die Bedienung (Hoch/Runter in der Row).
+- **Update-Discovery fuer .EXMODZ.** `InstalledExmodz.NexusModId` wird beim
+  Install aus dem Archiv-Dateinamen gefuellt, der Versions-Vergleich gegen
+  Nexus laeuft aber noch nicht — `InstalledUpdatesChecker` kennt nur die
+  PAK-Rows.
+- Optional: NXM-Protokoll-Handler fuer Free-User (braucht Host-Support).
 
 ## Referenz
 
@@ -159,4 +190,13 @@ v0.2 Bug-Fix `~mods` → `mods` (Icarus weicht von der UE4-Konvention ab).
   Original-Mod-Manager liegt nur als Binaer-Zip im Repo.
 - **Testprojekt**: `KroModIx.Plugin.Icarus.Tests` (xunit.v3 + FluentAssertions,
   VSTest-Pfad wie in den anderen KroModIx-Plugins). `dotnet test` im
-  `dotnet10`-Distrobox-Container.
+  `dotnet10`-Distrobox-Container. Der Pak-Leser/-Schreiber ist `internal`;
+  das Testprojekt kommt per `InternalsVisibleTo` aus der csproj dran.
+  `RealIcarusPakTests` misst gegen eine echte Installation und ueberspringt
+  sich, wo keine liegt — Pfad per `ICARUS_INSTALL_DIR` ueberschreibbar.
+- **Deutsche Anfuehrungszeichen in C#-Zeichenketten**: `„…"` mit geradem
+  Schlusszeichen beendet die Zeichenkette und bricht den Build mit einer
+  Kaskade aus CS1026/CS1002/CS1010, die nach einem Syntaxfehler an ganz
+  anderer Stelle aussieht. In dieser Runde zweimal passiert. Immer `„…“`
+  schreiben — in Kommentaren ist das gerade Zeichen harmlos, in Literalen
+  nicht.
