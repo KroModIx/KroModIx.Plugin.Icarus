@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services;
+using KroModIx.Plugin.Icarus.Services.Archive;
 using KroModIx.Plugin.Icarus.Services.Nexus;
 
 namespace KroModIx.Plugin.Icarus.Views;
@@ -75,7 +76,10 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         try
         {
             if (!Directory.Exists(DownloadsDir)) Directory.CreateDirectory(DownloadsDir);
-            _watcher = new FileSystemWatcher(DownloadsDir, "*.pak")
+            // v1.23.0: kein "*.pak"-Filter mehr — ein Browser-Download
+            // ist ein ZIP/RAR/7z, und mit dem alten Filter blieb der
+            // Downloads-Tab bei genau dem Normalfall still stehen.
+            _watcher = new FileSystemWatcher(DownloadsDir)
             {
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
                 EnableRaisingEvents = true,
@@ -156,12 +160,55 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
             // Async-Enrichment im Hintergrund: pro Row mit erkannter ModId
             // Nexus-Detail holen + Cover laden. Kein Blocking der UI.
             _ = EnrichRowsAsync(Rows.ToArray());
+            // v1.23.0: zusaetzlich in jedes Archiv schauen, damit die Row
+            // sagt, was drin ist. Getrennt vom Nexus-Enrichment, weil es
+            // keinen API-Key braucht und auch fuer selbst hineinkopierte
+            // Dateien funktioniert.
+            _ = InspectArchivesAsync(Rows.ToArray());
         }
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Downloads-Liste konnte nicht geladen werden");
             Summary = Strings.T("status.downloads_load_error");
         }
+    }
+
+    /// <summary>Liest bei jeder Archiv-Row die Eintragsliste und schreibt
+    /// eine Kurzfassung des Inhalts in die Row („1 PAK · 1 Lua-Mod").
+    ///
+    /// <para>Läuft off-UI: das Öffnen eines Archivs liest zwar nur das
+    /// Inhaltsverzeichnis, bei 7z auf einer drehenden Platte reicht das aber
+    /// für eine sichtbare Pause. Geschrieben wird nur auf dem UI-Thread —
+    /// sonst sehen die Bindings die Änderung nicht zuverlässig.</para></summary>
+    private async Task InspectArchivesAsync(DownloadRow[] rows)
+    {
+        foreach (var row in rows)
+        {
+            if (row.Source.Kind != IcarusFileKind.Archive) continue;
+            try
+            {
+                var contents = await Task.Run(() => IcarusArchive.Inspect(row.Source.FilePath));
+                var text = DescribeContents(contents);
+                await Dispatcher.UIThread.InvokeAsync(() => row.ContentInfo = text);
+            }
+            catch (Exception ex)
+            {
+                _host.Logger.Debug(ex, "Archiv-Inhalt nicht lesbar: {File}", row.FileName);
+            }
+        }
+    }
+
+    internal static string DescribeContents(IcarusArchiveContents c)
+    {
+        if (!c.IsReadable) return Strings.T("row.content.unreadable");
+        var parts = new List<string>();
+        if (c.PakEntries.Count > 0)
+            parts.Add(string.Format(Strings.T("row.content.paks"), c.PakEntries.Count));
+        if (c.Ue4ssModNames.Count > 0)
+            parts.Add(string.Format(Strings.T("row.content.lua"), c.Ue4ssModNames.Count));
+        if (c.ExmodzEntries.Count > 0)
+            parts.Add(string.Format(Strings.T("row.content.exmodz"), c.ExmodzEntries.Count));
+        return parts.Count == 0 ? Strings.T("row.kind.archive") : string.Join(" · ", parts);
     }
 
     /// <summary>Iteriert über die Rows mit erkannter <see cref="DownloadRow.NexusModId"/>,
@@ -244,9 +291,9 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         try
         {
             await TrySnapshotAsync($"Vor Install von {row.Source.FileName}");
-            var installed = _installer.Install(row.Source.FilePath, overwrite: true);
-            _host.Notifications.Notify(Strings.T("notify.installed_prefix") + installed.FileName, NotificationLevel.Success);
-            _downloadBus.RaiseModInstalled(installed.FileName);
+            var result = _installer.InstallAny(row.Source.FilePath, overwrite: true);
+            if (ModInstallReporter.Report(_host, result, "notify.installed_prefix"))
+                _downloadBus.RaiseModInstalled(result.Describe());
             Refresh();
         }
         catch (Exception ex)
@@ -272,7 +319,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         // Rollback will der User zurueck auf den Stand VOR dem Batch.
         await TrySnapshotAsync($"Vor Bulk-Install ({rows.Length} Archive)");
         using var scope = _host.BeginProgress(string.Format(Strings.T("progress.install_downloads"), rows.Length));
-        int done = 0, failed = 0;
+        int done = 0, failed = 0, skipped = 0;
         for (int i = 0; i < rows.Length; i++)
         {
             var row = rows[i];
@@ -280,8 +327,16 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
                 string.Format(Strings.T("progress.install_row"), i + 1, rows.Length, row.DisplayName));
             try
             {
-                var installed = _installer.Install(row.Source.FilePath, overwrite: true);
-                _downloadBus.RaiseModInstalled(installed.FileName);
+                var result = _installer.InstallAny(row.Source.FilePath, overwrite: true);
+                if (!result.InstalledAnything)
+                {
+                    // Reines .EXMODZ-Archiv: kein Fehler, aber auch kein
+                    // Erfolg. Als „uebersprungen" zaehlen, sonst meldet der
+                    // Stapel am Ende mehr Installationen als es gab.
+                    skipped++;
+                    continue;
+                }
+                _downloadBus.RaiseModInstalled(result.Describe());
                 done++;
             }
             catch (Exception ex)
@@ -293,8 +348,10 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         var msg = failed == 0
             ? string.Format(Strings.T("notify.bulk_install_ok"), done)
             : string.Format(Strings.T("notify.bulk_install_partial"), done, failed);
+        if (skipped > 0)
+            msg += " " + string.Format(Strings.T("notify.bulk_install_skipped"), skipped);
         _host.Notifications.Notify(msg,
-            failed == 0 ? NotificationLevel.Success : NotificationLevel.Warning);
+            failed == 0 && skipped == 0 ? NotificationLevel.Success : NotificationLevel.Warning);
         Refresh();
     }
 
@@ -400,6 +457,15 @@ public sealed partial class DownloadRow : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasCover))]
     private Bitmap? _cover;
+
+    /// <summary>Was in einem Archiv steckt, als kurze Zeile für die Row
+    /// („1 PAK · 1 Lua-Mod"). Null bei PAK-Rows und solange die Prüfung
+    /// im Hintergrund läuft.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasContentInfo))]
+    private string? _contentInfo;
+
+    public bool HasContentInfo => !string.IsNullOrWhiteSpace(ContentInfo);
 
     public bool HasCover => Cover is not null;
     public bool HasSummary => !string.IsNullOrWhiteSpace(Summary);

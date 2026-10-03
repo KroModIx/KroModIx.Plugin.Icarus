@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services;
 using KroModIx.Plugin.Icarus.Services.Nexus;
+using KroModIx.Plugin.Icarus.Services.Ue4ss;
 using KroModIx.Plugin.Icarus.Views;
 
 namespace KroModIx.Plugin.Icarus;
@@ -82,13 +83,24 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
                     game.Target.DisplayName);
                 continue;
             }
-            var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir);
+            // v1.23.0: UE4SS-Lua-Mods. Die Pfade werden hier einmal
+            // aufgeloest; ob der Loader installiert ist, prueft das ViewModel
+            // bei jedem Refresh neu — Steams Dateipruefung kann ihn
+            // wegraeumen, ohne dass das Plugin es mitbekommt.
+            var ue4ssPaths = new Ue4ssPaths(game);
+            var lua = new Ue4ssLuaModService(ue4ssPaths);
+            if (!ue4ssPaths.IsGameLayoutKnown)
+                host.Logger.Info("Icarus: Binaries/Win64 nicht gefunden — UE4SS-Teil bleibt aus fuer {Game}",
+                    game.Target.DisplayName);
+
+            var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir, lua);
             _installers[game.Target.GameId] = installer;
             _backups[game.Target.GameId] = new PakBackupService(installer);
             _updateCheckers[game.Target.GameId] = new InstalledUpdatesChecker(
                 installer, _nexusApi, _nexusSettings, _installedUpdatesTracker);
-            host.Logger.Info("Icarus initialisiert: manual={Manual}, workshop={Workshop}, downloads={Downloads}",
-                manualDir, workshopDir ?? "(none)", _paths.DownloadsDir);
+            host.Logger.Info("Icarus initialisiert: manual={Manual}, workshop={Workshop}, downloads={Downloads}, ue4ss={Ue4ss}",
+                manualDir, workshopDir ?? "(none)", _paths.DownloadsDir,
+                ue4ssPaths.FindModsDir() ?? ue4ssPaths.Win64Dir ?? "(none)");
         }
 
         // Auto-Check bei Plugin-Init.
@@ -202,7 +214,10 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
         public bool IsVisible(DetectedGame game) => true;
         public Control CreateView(DetectedGame game, IHostServices host) =>
             new InstalledPaksView { DataContext = new InstalledPaksViewModel(
-                _installer, _backup, _paths, _bus, _host, _api, _settings, _categories, _updatesChecker) };
+                _installer, _backup, _paths, _bus, _host, _api, _settings, _categories,
+                // v1.23.0: game durchreichen — daraus kommt der
+                // Proton-Praefix fuer die UE4SS-DLL-Umleitung.
+                _updatesChecker, game) };
     }
 
     private sealed class NexusTab : IGameTabContribution

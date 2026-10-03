@@ -126,9 +126,20 @@ public sealed class DownloadsView : UserControl
         var sep3 = new TextBlock { Text = "·" }; sep3.Classes.Add("muted");
         var dl = new TextBlock(); dl.Classes.Add("muted");
         dl.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.DownloadedText)));
+        // v1.23.0: was im Archiv steckt („1 PAK · 1 Lua-Mod"). Wird
+        // nachgeladen, deshalb erst sichtbar wenn die Pruefung durch ist —
+        // der Separator haengt an derselben Sichtbarkeit, sonst stuende ein
+        // einsames „·" am Zeilenende.
+        var sep4 = new TextBlock { Text = "·" }; sep4.Classes.Add("muted");
+        sep4.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(DownloadRow.HasContentInfo)));
+        var contentTb = new TextBlock(); contentTb.Classes.Add("muted");
+        contentTb.Bind(TextBlock.TextProperty, new Binding(nameof(DownloadRow.ContentInfo)));
+        contentTb.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(DownloadRow.HasContentInfo)));
+
         meta.Children.Add(authorTb); meta.Children.Add(sep1);
         meta.Children.Add(versionTb); meta.Children.Add(sep2);
         meta.Children.Add(size); meta.Children.Add(sep3); meta.Children.Add(dl);
+        meta.Children.Add(sep4); meta.Children.Add(contentTb);
 
         // Summary: 2 Zeilen, wird nur eingeblendet wenn Nexus-Detail-Fetch etwas geliefert hat.
         var summaryTb = new TextBlock

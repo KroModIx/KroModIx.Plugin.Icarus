@@ -32,23 +32,30 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private readonly NexusSettingsService? _nexusSettings;
     private readonly NexusCategoryService? _nexusCategories;
     private readonly InstalledUpdatesChecker? _updatesChecker;
+    /// <summary>v1.23.0: fuer den UE4SS-Teil gebraucht — daraus kommt der
+    /// Proton-Praefix-Pfad (<c>DetectedGame.ProtonPrefix</c>) fuer die
+    /// DLL-Umleitung. Null bei den Alt-Aufrufern ohne Spiel-Kontext; dann
+    /// bleibt der UE4SS-Abschnitt ohne Proton-Hinweis, der Rest laeuft.</summary>
+    private readonly DetectedGame? _game;
 
     private readonly List<PakRow> _allMods = new();
     private FileSystemWatcher? _manualWatcher;
     private FileSystemWatcher? _workshopWatcher;
+    private FileSystemWatcher? _luaWatcher;
 
     /// <summary>Convenience-Ctor für Callsites die noch keine Nexus-Deps
     /// injizieren (Tests, ältere Wirings). Ohne Nexus → nur Filenames,
     /// keine Cover/Details.</summary>
     public InstalledPaksViewModel(PakInstallService installer, PakBackupService backup,
         IcarusPaths paths, DownloadEventBus downloadBus, IHostServices host)
-        : this(installer, backup, paths, downloadBus, host, null, null, null, null) { }
+        : this(installer, backup, paths, downloadBus, host, null, null, null, null, null) { }
 
     public InstalledPaksViewModel(PakInstallService installer, PakBackupService backup,
         IcarusPaths paths, DownloadEventBus downloadBus, IHostServices host,
         NexusApiClient? nexusApi, NexusSettingsService? nexusSettings,
         NexusCategoryService? nexusCategories,
-        InstalledUpdatesChecker? updatesChecker = null)
+        InstalledUpdatesChecker? updatesChecker = null,
+        DetectedGame? game = null)
     {
         _installer = installer;
         _backup = backup;
@@ -59,6 +66,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         _nexusSettings = nexusSettings;
         _nexusCategories = nexusCategories;
         _updatesChecker = updatesChecker;
+        _game = game;
         ModsDir = installer.ModsDir;
         WorkshopDir = installer.WorkshopDir ?? Strings.T("label.workshop_none");
         InitEvents();
@@ -93,14 +101,18 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     [ObservableProperty] private string _summary = "";
     [ObservableProperty] private string _searchText = "";
 
-    /// <summary>Filter: nur Manual, nur Workshop, oder beide.</summary>
+    /// <summary>Filter nach Mod-Quelle. Alle drei standardmäßig an — der
+    /// Installiert-Tab soll zeigen, was im Spiel liegt, nicht eine Auswahl
+    /// davon.</summary>
     [ObservableProperty] private bool _showManual = true;
     [ObservableProperty] private bool _showWorkshop = true;
+    [ObservableProperty] private bool _showLua = true;
 
     partial void OnSelectedChanged(PakRow? value) => OnPropertyChanged(nameof(HasSelection));
     partial void OnSearchTextChanged(string value) => ApplyFilter();
     partial void OnShowManualChanged(bool value) => ApplyFilter();
     partial void OnShowWorkshopChanged(bool value) => ApplyFilter();
+    partial void OnShowLuaChanged(bool value) => ApplyFilter();
 
     private void InitEvents()
     {
@@ -120,6 +132,10 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     {
         _manualWatcher = TryCreateWatcher(_installer.ModsDir);
         _workshopWatcher = TryCreateWatcher(_installer.WorkshopDir);
+        // v1.23.0: auch der Lua-Mod-Ordner. Ohne diesen Watcher bliebe
+        // eine von Hand hineingelegte Lua-Mod bis zum naechsten
+        // Tab-Wechsel unsichtbar.
+        _luaWatcher = TryCreateWatcher(_installer.Lua?.Paths.FindModsDir());
     }
 
     private FileSystemWatcher? TryCreateWatcher(string? dir)
@@ -169,8 +185,16 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         _allMods.Clear();
         try
         {
+            // Reihenfolge: manuelle PAKs, dann Lua-Mods, dann Workshop.
+            // Explizite Rangfolge statt eines Bool-Vergleichs — mit drei
+            // Quellen wuerde "ist Workshop" Manual und Lua vermischen.
             foreach (var m in _installer.ListInstalled()
-                         .OrderBy(m => m.Source == PakModSource.Workshop) // Manual zuerst
+                         .OrderBy(m => m.Source switch
+                         {
+                             PakModSource.Manual => 0,
+                             PakModSource.Ue4ssLua => 1,
+                             _ => 2,
+                         })
                          .ThenByDescending(m => m.IsEnabled)
                          .ThenBy(m => m.FileName, StringComparer.CurrentCultureIgnoreCase))
             {
@@ -187,16 +211,22 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
 
             var manualCount = _allMods.Count(r => r.IsManual);
             var workshopCount = _allMods.Count(r => r.IsWorkshop);
+            var luaCount = _allMods.Count(r => r.IsLua);
             var enabled = _allMods.Count(r => r.IsEnabled);
             Summary = _allMods.Count == 0
                 ? Strings.T("status.no_mods")
                 : string.Format(Strings.T("status.mod_summary"), enabled, manualCount, workshopCount);
+            // Lua nur nennen wenn es welche gibt — ohne UE4SS waere „0 Lua"
+            // nur Rauschen in der Statuszeile.
+            if (luaCount > 0)
+                Summary += " " + string.Format(Strings.T("status.mod_summary_lua"), luaCount);
         }
         catch (Exception ex)
         {
             _host.Logger.Warn(ex, "Icarus: Mod-Liste konnte nicht geladen werden");
             Summary = Strings.T("status.mods_load_error");
         }
+        RefreshUe4ssStatus();
         ApplyFilter();
 
         // Async-Enrichment im Hintergrund für Manual-Rows mit Nexus-Filename.
@@ -321,6 +351,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         {
             if (row.IsManual && !ShowManual) continue;
             if (row.IsWorkshop && !ShowWorkshop) continue;
+            if (row.IsLua && !ShowLua) continue;
             if (q.Length > 0 && !row.FileName.Contains(q, StringComparison.OrdinalIgnoreCase)) continue;
             Mods.Add(row);
         }
@@ -437,15 +468,15 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private async Task InstallFromFileAsync()
     {
         var picked = await _host.Dialogs.PickFileAsync(
-            Strings.T("dialog.pick_pak_title"),
-            (Strings.T("dialog.pick_pak_filter"), new[] { "*.pak" }));
+            Strings.T("dialog.pick_mod_title"),
+            (Strings.T("dialog.pick_mod_filter"),
+                new[] { "*.pak", "*.zip", "*.rar", "*.7z" }));
         if (picked is null) return;
         try
         {
-            var installed = _installer.Install(picked, overwrite: false);
-            _host.Notifications.Notify(Strings.T("notify.installed_prefix") + installed.FileName,
-                NotificationLevel.Success);
-            _downloadBus.RaiseModInstalled(installed.FileName);
+            var result = _installer.InstallAny(picked, overwrite: false);
+            if (ModInstallReporter.Report(_host, result, "notify.installed_prefix"))
+                _downloadBus.RaiseModInstalled(result.Describe());
             Refresh();
         }
         catch (Exception ex)
@@ -459,10 +490,9 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     {
         try
         {
-            var installed = _installer.Install(pakPath, overwrite: false);
-            _host.Notifications.Notify(Strings.T("notify.installed_drop_prefix") + installed.FileName,
-                NotificationLevel.Success);
-            _downloadBus.RaiseModInstalled(installed.FileName);
+            var result = _installer.InstallAny(pakPath, overwrite: false);
+            if (ModInstallReporter.Report(_host, result, "notify.installed_drop_prefix"))
+                _downloadBus.RaiseModInstalled(result.Describe());
         }
         catch (Exception ex)
         {
@@ -718,20 +748,26 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                 scope.Report(f, string.Format(Strings.T("progress.download_percent"), file.FileName, (int)(f * 100))));
             var wasEnabled = row.Source.IsEnabled;
 
-            var newPakPath = await _installer.DownloadPakAsync(http, link, file.FileName,
+            var newPakPath = await _installer.DownloadModFileAsync(http, link, file.FileName,
                 overwrite: true, progress);
             _downloadBus.RaiseDownloadsChanged(Path.GetFileName(newPakPath));
 
             // Alte Version deinstallieren, neue installieren (identisch zu LS25 v0.7-Update).
             _installer.Uninstall(row.Source);
-            var installed = _installer.Install(newPakPath, overwrite: true);
+            var result = _installer.InstallAny(newPakPath, overwrite: true);
+            // Den Aktiv-Zustand nur uebertragen, wenn die neue Version
+            // ueberhaupt PAKs mitgebracht hat — bei einem Archiv-Update kann
+            // das anders aussehen als bei der alten Fassung.
             if (!wasEnabled)
-                _installer.SetEnabled(installed, false);
+            {
+                foreach (var pak in result.Paks)
+                    _installer.SetEnabled(pak, false);
+            }
 
             _host.Notifications.Notify(
                 Strings.T("notify.update_installed_prefix") + $"{row.DisplayName} → v{row.LatestVersion}",
                 NotificationLevel.Success);
-            _downloadBus.RaiseModInstalled(installed.FileName);
+            _downloadBus.RaiseModInstalled(result.Describe());
             Refresh();
 
             // Skill Kernprinzip 6b: Re-Check triggern damit der Sidebar-Kachel-
@@ -751,6 +787,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
         _downloadBus.ModInstalled -= _installedHandler;
         _manualWatcher?.Dispose();
         _workshopWatcher?.Dispose();
+        _luaWatcher?.Dispose();
     }
 }
 
@@ -767,9 +804,21 @@ public sealed partial class PakRow : ObservableObject
     public string Size => FormatBytes(Source.FileSizeBytes);
     public bool IsWorkshop => Source.Source == PakModSource.Workshop;
     public bool IsManual => Source.Source == PakModSource.Manual;
-    public string SourceBadge => Source.Source == PakModSource.Workshop
-        ? Strings.T("badge.workshop")
+    public bool IsLua => Source.Source == PakModSource.Ue4ssLua;
+    public string SourceBadge => Source.Source switch
+    {
+        PakModSource.Workshop => Strings.T("badge.workshop"),
+        PakModSource.Ue4ssLua => Strings.T("badge.lua"),
+        _ => "",
+    };
+
+    /// <summary>„3 Skript(e)" bei Lua-Mods, sonst leer — die Zahl sagt bei
+    /// einem Ordner mehr über den Umfang als die Dateigröße.</summary>
+    public string ScriptsLabel => IsLua
+        ? string.Format(Strings.T("row.lua.scripts"), Source.ScriptCount)
         : "";
+
+    public bool HasScriptsLabel => IsLua;
 
     /// <summary>Aus dem Filename extrahiert (nur bei Manual-Mods).
     /// null wenn nicht dem Nexus-Muster entspricht (Workshop, User-Copy).</summary>

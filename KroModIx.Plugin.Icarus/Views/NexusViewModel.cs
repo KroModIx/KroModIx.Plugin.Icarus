@@ -304,7 +304,7 @@ public sealed partial class NexusViewModel : ObservableObject
             using var http = _host.CreateHttpClient("nexus-download");
             var progress = new Progress<double>(f =>
                 scope.Report(f, string.Format(Strings.T("progress.download_percent"), file.FileName, (int)(f * 100))));
-            var target = await _installer.DownloadPakAsync(http, link, file.FileName,
+            var target = await _installer.DownloadModFileAsync(http, link, file.FileName,
                 overwrite: false, progress);
             _host.Notifications.Notify(Strings.T("notify.download_ok_prefix") + Path.GetFileName(target),
                 NotificationLevel.Success);

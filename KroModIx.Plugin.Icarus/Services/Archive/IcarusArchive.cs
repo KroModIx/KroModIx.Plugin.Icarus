@@ -50,35 +50,63 @@ public static class IcarusArchive
     public static bool HasSupportedExtension(string path)
         => SupportedExtensions.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Liest die ersten Bytes und entscheidet daraus, was die Datei
-    /// ist. ZIP/RAR/7z haben eindeutige Signaturen am Dateianfang; ein
-    /// Unreal-PAK hat seine Magic (<c>0x5A6F12E1</c>) im Footer, dessen
-    /// Position von der Pak-Version abhängt. Deshalb die Logik umgekehrt:
-    /// erst die drei Archiv-Signaturen prüfen, und was keine ist, aber auf
-    /// <c>.pak</c> endet, gilt als PAK.</summary>
+    /// <summary>Die Unreal-Pak-Magic <c>0x5A6F12E1</c>, wie sie im Footer
+    /// auf der Platte steht (little-endian). Nachgesehen im echten
+    /// <c>Content/Data/data.pak</c> von Icarus und in einem gebauten
+    /// Mod-Pak — in beiden steht sie in den letzten Bytes.</summary>
+    private static readonly byte[] PakFooterMagic = [0xE1, 0x12, 0x6F, 0x5A];
+
+    /// <summary>Wie viele Bytes am Dateiende nach der Pak-Magic durchsucht
+    /// werden. Die genaue Position hängt von der Pak-Version ab (Icarus
+    /// liefert v11), deshalb ein Fenster statt eines festen Offsets.
+    /// 1 KiB deckt jede bekannte Footer-Variante ab.</summary>
+    private const int PakFooterWindow = 1024;
+
+    /// <summary>Entscheidet anhand des Inhalts, was die Datei ist.
+    ///
+    /// <para><b>Reihenfolge der Prüfungen ist wichtig.</b> Die Pak-Magik im
+    /// Footer kommt zuerst, weil sie ein echter Beleg ist. Erst danach die
+    /// drei Archiv-Signaturen am Dateianfang. Umgekehrt wäre es angreifbar:
+    /// ein PAK beginnt mit den Daten seiner ersten Datei, und die können
+    /// zufällig mit <c>PK</c> anfangen — dann wäre ein funktionierendes
+    /// Mod-PAK als „ZIP" eingeordnet und der Installer hätte versucht, es
+    /// auszupacken.</para>
+    ///
+    /// <para>Was weder Footer-Magik noch Archiv-Signatur hat, aber auf
+    /// <c>.pak</c> endet, gilt als PAK — etwa ein abgebrochener Download,
+    /// den der Installer dann sauber ablehnt.</para></summary>
     public static IcarusFileKind DetectKind(string path)
     {
         try
         {
             if (!File.Exists(path)) return IcarusFileKind.Unknown;
-            Span<byte> head = stackalloc byte[6];
-            using (var fs = File.OpenRead(path))
-            {
-                if (fs.Read(head) < 6)
-                    return path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)
-                        ? IcarusFileKind.Pak : IcarusFileKind.Unknown;
-            }
-            // ZIP: "PK" + 03 04 / 05 06 (leer) / 07 08 (gespannt)
-            if (head[0] == 0x50 && head[1] == 0x4B) return IcarusFileKind.Archive;
-            // RAR: "Rar!" 1A 07
-            if (head[0] == 0x52 && head[1] == 0x61 && head[2] == 0x72 && head[3] == 0x21)
-                return IcarusFileKind.Archive;
-            // 7z: "7z" BC AF 27 1C
-            if (head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC && head[3] == 0xAF)
-                return IcarusFileKind.Archive;
-
-            return path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)
+            var byExtension = path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)
                 ? IcarusFileKind.Pak : IcarusFileKind.Unknown;
+
+            using var fs = File.OpenRead(path);
+            if (fs.Length < 4) return byExtension;
+
+            // 1) Unreal-Pak-Footer — der belastbare Beleg.
+            var tailLength = (int)Math.Min(PakFooterWindow, fs.Length);
+            var tail = new byte[tailLength];
+            fs.Seek(-tailLength, SeekOrigin.End);
+            fs.ReadExactly(tail, 0, tailLength);
+            if (tail.AsSpan().IndexOf(PakFooterMagic) >= 0) return IcarusFileKind.Pak;
+
+            // 2) Archiv-Signaturen am Dateianfang.
+            fs.Seek(0, SeekOrigin.Begin);
+            Span<byte> head = stackalloc byte[6];
+            var read = fs.Read(head);
+            if (read >= 2 && head[0] == 0x50 && head[1] == 0x4B)
+                return IcarusFileKind.Archive;                       // "PK" — ZIP
+            if (read >= 4 && head[0] == 0x52 && head[1] == 0x61
+                && head[2] == 0x72 && head[3] == 0x21)
+                return IcarusFileKind.Archive;                       // "Rar!"
+            if (read >= 4 && head[0] == 0x37 && head[1] == 0x7A
+                && head[2] == 0xBC && head[3] == 0xAF)
+                return IcarusFileKind.Archive;                       // "7z" BC AF
+
+            return byExtension;
         }
         catch (Exception ex)
         {

@@ -42,6 +42,7 @@ public sealed class InstalledPaksView : UserControl
             Children =
             {
                 WithDock(BuildToolbar(), Dock.Top),
+                WithDock(BuildUe4ssSection(), Dock.Top),
                 WithDock(BuildFilterRow(), Dock.Top),
                 WithDock(BuildPathLabel(), Dock.Top),
                 WithDock(BuildSummary(), Dock.Bottom),
@@ -89,10 +90,15 @@ public sealed class InstalledPaksView : UserControl
         var restoreBtn = new Button { Content = Strings.T("btn.restore") };
         restoreBtn.Bind(Button.CommandProperty, new Binding(nameof(InstalledPaksViewModel.RestoreBackupCommand)));
 
-        var toolbar = new StackPanel
+        // WrapPanel, nicht StackPanel: ein StackPanel schneidet ab, was nicht
+        // in die Breite passt — ohne Fehler und ohne Warnung. Bei zehn
+        // Knoepfen mit deutschen Beschriftungen ist das keine theoretische
+        // Gefahr (kroste-avalonia, Avalonia-12-Regel).
+        var toolbar = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            ItemSpacing = 6,
+            LineSpacing = 6,
             Margin = new Thickness(0, 0, 0, 10),
         };
         toolbar.Children.Add(checkUpdatesBtn);
@@ -135,26 +141,134 @@ public sealed class InstalledPaksView : UserControl
         workshopToggle.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(InstalledPaksViewModel.ShowWorkshop))
         { Mode = BindingMode.TwoWay });
 
+        // v1.23.0: dritte Quelle. Ohne eigenen Umschalter waeren die
+        // Lua-Mods von keinem der beiden anderen Filter erfasst und immer
+        // sichtbar — inkonsistent zu PAK und Workshop.
+        var luaToggle = new ToggleButton { Content = Strings.T("toggle.lua") };
+        luaToggle.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(InstalledPaksViewModel.ShowLua))
+        { Mode = BindingMode.TwoWay });
+
         var count = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         count.Classes.Add("muted");
         count.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.SelectedCountLabel)));
 
         var grid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto"),
             Margin = new Thickness(0, 0, 0, 10),
         };
         Grid.SetColumn(_searchBox!, 0);
         Grid.SetColumn(manualToggle, 1);
         Grid.SetColumn(workshopToggle, 2);
-        Grid.SetColumn(count, 3);
+        Grid.SetColumn(luaToggle, 3);
+        Grid.SetColumn(count, 4);
         manualToggle.Margin = new Thickness(8, 0, 4, 0);
-        workshopToggle.Margin = new Thickness(4, 0, 12, 0);
+        workshopToggle.Margin = new Thickness(4, 0, 4, 0);
+        luaToggle.Margin = new Thickness(4, 0, 12, 0);
         grid.Children.Add(_searchBox!);
         grid.Children.Add(manualToggle);
         grid.Children.Add(workshopToggle);
+        grid.Children.Add(luaToggle);
         grid.Children.Add(count);
         return grid;
+    }
+
+    /// <summary>Der UE4SS-Abschnitt: eine Karte mit dem Zustand des
+    /// Lua-Mod-Loaders und den Knöpfen, die ihn in Gang bringen.
+    ///
+    /// <para>Bewusst eine eigene Sektions-Karte und keine weiteren Knöpfe in
+    /// der Werkzeugleiste. Der Grund ist nicht Ästhetik: der entscheidende
+    /// Teil ist der <b>Zustandstext</b>. „Proton lädt seine eigene
+    /// dwmapi.dll" erklärt dem User, warum seine Lua-Mods nichts tun —
+    /// ein Knopf allein in der Leiste täte das nicht, und genau dieser
+    /// Fehlerfall hat kein anderes Symptom als Wirkungslosigkeit.</para>
+    ///
+    /// <para>Die Karte verschwindet ganz, wenn
+    /// <c>Icarus/Binaries/Win64</c> nicht gefunden wurde — dann ist nichts
+    /// einzurichten.</para></summary>
+    private static Control BuildUe4ssSection()
+    {
+        var heading = new TextBlock { Text = Strings.T("ue4ss.section") };
+        heading.Classes.Add("section-label");
+
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        status.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.Ue4ssStatusText)));
+
+        var proton = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+        proton.Classes.Add("secondary");
+        proton.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.Ue4ssProtonText)));
+        proton.Bind(TextBlock.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.Ue4ssProtonText))
+            {
+                Converter = new Avalonia.Data.Converters.FuncValueConverter<string?, bool>(
+                    v => !string.IsNullOrWhiteSpace(v)),
+            });
+
+        var loader = new TextBlock
+        {
+            FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
+        };
+        loader.Classes.Add("muted");
+        loader.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.Ue4ssLoaderText)));
+        loader.Bind(TextBlock.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.Ue4ssLoaderText))
+            {
+                Converter = new Avalonia.Data.Converters.FuncValueConverter<string?, bool>(
+                    v => !string.IsNullOrWhiteSpace(v)),
+            });
+
+        var installBtn = new Button { Content = Strings.T("ue4ss.btn_install") };
+        installBtn.Classes.Add("accent");
+        installBtn.Bind(Button.CommandProperty,
+            new Binding(nameof(InstalledPaksViewModel.InstallUe4ssCommand)));
+        // Beschriftung bleibt „installieren", auch wenn schon installiert —
+        // derselbe Knopf ist dann der Update-Weg auf die neueste Ausgabe.
+        installBtn.Bind(Button.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.IsUe4ssSupported)));
+
+        var protonBtn = new Button { Content = Strings.T("ue4ss.btn_fix_proton") };
+        protonBtn.Bind(Button.CommandProperty,
+            new Binding(nameof(InstalledPaksViewModel.FixProtonOverrideCommand)));
+        protonBtn.Bind(Button.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.NeedsProtonFix)));
+
+        var openBtn = new Button { Content = Strings.T("ue4ss.btn_open_folder") };
+        openBtn.Classes.Add("ghost");
+        openBtn.Bind(Button.CommandProperty,
+            new Binding(nameof(InstalledPaksViewModel.OpenUe4ssFolderCommand)));
+        openBtn.Bind(Button.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.IsUe4ssInstalled)));
+
+        // WrapPanel auch hier — „UE4SS installieren" plus „DLL-Umleitung
+        // setzen" plus „UE4SS-Ordner" wird in einem schmalen Fenster eng.
+        var buttons = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            ItemSpacing = 6, LineSpacing = 6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { installBtn, protonBtn, openBtn },
+        };
+
+        var texts = new StackPanel
+        {
+            Spacing = 0,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { heading, status, proton, loader },
+        };
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        Grid.SetColumn(texts, 0);
+        Grid.SetColumn(buttons, 1);
+        buttons.Margin = new Thickness(12, 0, 0, 0);
+        grid.Children.Add(texts);
+        grid.Children.Add(buttons);
+
+        var card = new Border { Padding = new Thickness(14, 10, 14, 12), Margin = new Thickness(0, 0, 0, 10) };
+        card.Classes.Add("card");
+        card.Child = grid;
+        card.Bind(Border.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.ShowUe4ssSection)));
+        return card;
     }
 
     private static Control BuildPathLabel()
@@ -230,10 +344,18 @@ public sealed class InstalledPaksView : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
         coverFallback.Classes.Add("muted");
-        // Fallback-Emoji abhängig von Source: 🗻 (Icarus) für Workshop, 📦 für Manual.
-        coverFallback.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.IsWorkshop))
+        // Fallback-Emoji nach Quelle: 🗻 Workshop, 🐍 Lua, 📦 manuelles PAK.
+        // Lua-Mods haben nie ein Nexus-Cover (der Ordnername ist kein
+        // Nexus-Dateiname), deshalb ist das Emoji dort der Dauerzustand und
+        // nicht nur ein Platzhalter.
+        coverFallback.Bind(TextBlock.TextProperty, new MultiBinding
         {
-            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, string>(v => v ? "🗻" : "📦"),
+            Bindings =
+            {
+                new Binding(nameof(PakRow.IsWorkshop)),
+                new Binding(nameof(PakRow.IsLua)),
+            },
+            Converter = new SourceEmojiConverter(),
         });
         coverPanel.Children.Add(coverFallback);
         var coverImage = new Image
@@ -275,6 +397,13 @@ public sealed class InstalledPaksView : UserControl
         workshopBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop)));
         titleRow.Children.Add(workshopBadge);
 
+        // Lua-Badge — damit auf einen Blick klar ist, dass diese Mod ueber
+        // UE4SS laeuft und nicht ueber den Pak-Ordner. Beides zusammen in
+        // einer Liste waere sonst verwirrend.
+        var luaBadge = MakeBadge(Strings.T("badge.lua"), "KrosteAccentSoftBrush", Brushes.White);
+        luaBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsLua)));
+        titleRow.Children.Add(luaBadge);
+
         // Update-Badge (Kroste-Gold auf schwarz) — nur wenn CheckUpdatesAsync
         // ein neueres Version bei Nexus entdeckt hat.
         var updateBadge = new Border
@@ -307,10 +436,19 @@ public sealed class InstalledPaksView : UserControl
         var sep3 = new TextBlock { Text = "·" }; sep3.Classes.Add("muted");
         var stateTb = new TextBlock(); stateTb.Classes.Add("muted");
         stateTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.StateLabel)));
+        // v1.23.0: bei Lua-Mods die Zahl der Skripte. Bei einem Ordner sagt
+        // sie mehr ueber den Umfang als die Byte-Summe.
+        var sep4 = new TextBlock { Text = "·" }; sep4.Classes.Add("muted");
+        sep4.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(PakRow.HasScriptsLabel)));
+        var scriptsTb = new TextBlock(); scriptsTb.Classes.Add("muted");
+        scriptsTb.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.ScriptsLabel)));
+        scriptsTb.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(PakRow.HasScriptsLabel)));
+
         meta.Children.Add(authorTb); meta.Children.Add(sep1);
         meta.Children.Add(versionTb); meta.Children.Add(sep2);
         meta.Children.Add(sizeTb); meta.Children.Add(sep3);
         meta.Children.Add(stateTb);
+        meta.Children.Add(sep4); meta.Children.Add(scriptsTb);
 
         // Summary — nur sichtbar wenn Nexus-Detail-Fetch etwas geliefert hat.
         var summaryTb = new TextBlock
@@ -350,7 +488,13 @@ public sealed class InstalledPaksView : UserControl
 
         var toggleBtn = new Button { Content = Strings.T("btn.toggle_enabled") };
         BindRowCommand(toggleBtn, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
-        toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsManual)));
+        // Sichtbar bei allem, was nicht Workshop ist — bei Lua laeuft das
+        // Umschalten ueber die enabled.txt, bei PAK ueber die Dateiendung.
+        // Workshop bleibt read-only (Steam verwaltet die Ordner).
+        toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop))
+        {
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
+        });
 
         var detailBtn = new Button { Content = Strings.T("btn.details") };
         BindRowCommand(detailBtn, nameof(InstalledPaksViewModel.ShowDetailCommand));
@@ -360,7 +504,10 @@ public sealed class InstalledPaksView : UserControl
         var uninstallBtn = new Button { Content = Strings.T("btn.uninstall") };
         uninstallBtn.Classes.Add("danger");
         BindRowCommand(uninstallBtn, nameof(InstalledPaksViewModel.UninstallRowCommand));
-        uninstallBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsManual)));
+        uninstallBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop))
+        {
+            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
+        });
 
         var workshopHint = new TextBlock
         {
@@ -499,7 +646,7 @@ public sealed class InstalledPaksView : UserControl
         foreach (var f in files)
         {
             var local = f.Path.LocalPath;
-            if (!local.EndsWith(".pak", System.StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Services.Archive.IcarusArchive.HasSupportedExtension(local)) continue;
             try { vm.InstallDroppedPak(local); count++; }
             catch { /* Notify läuft im VM */ }
         }
@@ -507,11 +654,28 @@ public sealed class InstalledPaksView : UserControl
         e.Handled = true;
     }
 
+    /// <summary>v1.23.0: auch Archive annehmen. Vorher liess sich ein von
+    /// Nexus geladenes ZIP nicht in den Tab ziehen — das Ziehen wurde
+    /// abgelehnt, ohne zu sagen warum.</summary>
     private static bool HasPakFiles(DragEventArgs e)
     {
         var files = e.DataTransfer.TryGetFiles();
         if (files is null) return false;
-        return files.Any(f => f.Path.LocalPath.EndsWith(".pak", System.StringComparison.OrdinalIgnoreCase));
+        return files.Any(f => Services.Archive.IcarusArchive.HasSupportedExtension(f.Path.LocalPath));
+    }
+
+    /// <summary>Emoji nach Mod-Quelle. Eingabe ist [IsWorkshop, IsLua];
+    /// was keins von beidem ist, ist ein manuelles PAK.</summary>
+    private sealed class SourceEmojiConverter : Avalonia.Data.Converters.IMultiValueConverter
+    {
+        public object? Convert(System.Collections.Generic.IList<object?> values,
+            System.Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+        {
+            var isWorkshop = values.Count > 0 && values[0] is bool w && w;
+            var isLua = values.Count > 1 && values[1] is bool l && l;
+            if (isWorkshop) return "🗻";
+            return isLua ? "🐍" : "📦";
+        }
     }
 
     private sealed class AllTrueConverter : Avalonia.Data.Converters.IMultiValueConverter
