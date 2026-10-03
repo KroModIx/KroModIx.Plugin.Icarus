@@ -121,6 +121,11 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         {
             var dirs = new List<string>();
             if (Directory.Exists(_installer.ModsDir)) dirs.Add(_installer.ModsDir);
+            // v1.23.0: der UE4SS-Mods-Ordner gehoert dazu, seit ein Archiv
+            // auch dorthin schreibt — ein Snapshot, der nur den Pak-Ordner
+            // sichert, wuerde beim Zurueckspielen die Lua-Mods vergessen.
+            var luaDir = _installer.Lua?.Paths.FindModsDir();
+            if (luaDir is not null && Directory.Exists(luaDir)) dirs.Add(luaDir);
             if (dirs.Count == 0) return;
             var gameKey = _installer.ModsDir;
             await _host.Backup.CreateSnapshotAsync(
@@ -320,6 +325,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
         await TrySnapshotAsync($"Vor Bulk-Install ({rows.Length} Archive)");
         using var scope = _host.BeginProgress(string.Format(Strings.T("progress.install_downloads"), rows.Length));
         int done = 0, failed = 0, skipped = 0;
+        var touchedExmodz = false;
         for (int i = 0; i < rows.Length; i++)
         {
             var row = rows[i];
@@ -327,7 +333,12 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
                 string.Format(Strings.T("progress.install_row"), i + 1, rows.Length, row.DisplayName));
             try
             {
-                var result = _installer.InstallAny(row.Source.FilePath, overwrite: true);
+                // autoRebuild aus: ein Neubau liest alle betroffenen
+                // Basistabellen, das je Datei zu tun waere verschwendete
+                // Arbeit. Einmal nach der Schleife genuegt.
+                var result = _installer.InstallAny(row.Source.FilePath, overwrite: true,
+                    autoRebuild: false);
+                if (result.TouchedExmodz) touchedExmodz = true;
                 if (!result.InstalledAnything)
                 {
                     // Reines .EXMODZ-Archiv: kein Fehler, aber auch kein
@@ -345,6 +356,18 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
                 failed++;
             }
         }
+        if (touchedExmodz && _installer.Exmodz is not null)
+        {
+            scope.Report(1.0, Strings.T("exmodz.rebuilding"));
+            var merge = await Task.Run(_installer.Exmodz.Rebuild);
+            foreach (var w in merge.Warnings)
+                _host.Notifications.Notify(w, NotificationLevel.Warning);
+            if (!merge.Ok)
+                _host.Notifications.Notify(
+                    string.Format(Strings.T("exmodz.rebuild_failed"), merge.Message),
+                    NotificationLevel.Error);
+        }
+
         var msg = failed == 0
             ? string.Format(Strings.T("notify.bulk_install_ok"), done)
             : string.Format(Strings.T("notify.bulk_install_partial"), done, failed);

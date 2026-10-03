@@ -23,4 +23,14 @@
   <ItemGroup>
     <None Update="plugin.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- v1.24.0: der Pak-Leser und -Schreiber ist internal (kein Teil der
+         Plugin-Oberflaeche), muss aber testbar sein — der Container ist
+         genau die Stelle, an der ein Fehler nicht als Ausnahme auffaellt,
+         sondern als "die Mod tut nichts". -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KroModIx.Plugin.Icarus.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

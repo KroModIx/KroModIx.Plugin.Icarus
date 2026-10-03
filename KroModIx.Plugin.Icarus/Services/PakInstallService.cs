@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using NLog;
 using SharpCompress.Archives;
 using KroModIx.Plugin.Icarus.Services.Archive;
 using KroModIx.Plugin.Icarus.Services.Ue4ss;
+using KroModIx.Plugin.Icarus.Services.Exmodz;
 
 namespace KroModIx.Plugin.Icarus.Services;
 
@@ -32,24 +34,29 @@ public sealed class PakInstallService
     private readonly string? _workshopContentDir;
     private readonly string _downloadsDir;
     private readonly Ue4ssLuaModService? _lua;
+    private readonly ExmodzService? _exmodz;
 
     /// <param name="lua">v1.23.0: der UE4SS-Dienst, damit ein Archiv seine
     /// Lua-Mods gleich mit installieren kann. Null heißt nur, dass der
     /// UE4SS-Teil eines Archivs übersprungen und gemeldet wird — der
     /// PAK-Teil funktioniert weiter.</param>
+    /// <param name="exmodz">v1.24.0: der Dienst für Datentabellen-Mods.
+    /// Null heißt, dass <c>.EXMODZ</c> im Archiv nur gemeldet werden.</param>
     public PakInstallService(string manualModsDir, string? workshopContentDir, string downloadsDir,
-        Ue4ssLuaModService? lua = null)
+        Ue4ssLuaModService? lua = null, ExmodzService? exmodz = null)
     {
         _manualModsDir = manualModsDir;
         _workshopContentDir = workshopContentDir;
         _downloadsDir = downloadsDir;
         _lua = lua;
+        _exmodz = exmodz;
     }
 
     public string ModsDir => _manualModsDir;
     public string? WorkshopDir => _workshopContentDir;
     public string DownloadsDir => _downloadsDir;
     public Ue4ssLuaModService? Lua => _lua;
+    public ExmodzService? Exmodz => _exmodz;
 
     public IReadOnlyList<InstalledPakMod> ListInstalled()
     {
@@ -57,6 +64,7 @@ public sealed class PakInstallService
         ScanManual(result);
         ScanWorkshop(result);
         ScanUe4ssLua(result);
+        ScanExmodz(result);
         return result;
     }
 
@@ -87,6 +95,39 @@ public sealed class PakInstallService
             Log.Warn(ex, "UE4SS-Lua-Mods konnten nicht gelistet werden");
         }
     }
+
+    /// <summary>v1.24.0: die Datentabellen-Mods, ebenfalls in derselben
+    /// Liste. <see cref="InstalledPakMod.FilePath"/> zeigt dabei auf die
+    /// <c>.EXMODZ</c>-Quelle im Plugin-Datenordner, nicht auf etwas im
+    /// Spiel — ins Spiel geht nur das gebaute gemeinsame Pak.</summary>
+    private void ScanExmodz(List<InstalledPakMod> result)
+    {
+        if (_exmodz is null) return;
+        try
+        {
+            foreach (var m in _exmodz.ListInstalled())
+            {
+                result.Add(new InstalledPakMod(
+                    FilePath: m.FilePath,
+                    FileName: m.DisplayName,
+                    FileSizeBytes: m.FileSizeBytes,
+                    InstalledUtc: m.InstalledUtc,
+                    IsEnabled: m.Enabled,
+                    Source: PakModSource.Exmodz,
+                    ModVersion: m.Version,
+                    ModAuthor: m.Author,
+                    NexusModId: m.NexusModId));
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "Datentabellen-Mods konnten nicht gelistet werden");
+        }
+    }
+
+    /// <summary>Die Kennung einer Datentabellen-Mod ist der Dateiname ihrer
+    /// Quelle ohne Endung — so legt sie <c>ExmodzStore</c> ab.</summary>
+    private static string ExmodzId(InstalledPakMod mod) => Path.GetFileNameWithoutExtension(mod.FilePath);
 
     /// <summary>Übersetzt eine Lua-Zeile aus <see cref="ListInstalled"/>
     /// zurück in das Modell des UE4SS-Dienstes.</summary>
@@ -180,7 +221,14 @@ public sealed class PakInstallService
     /// <para>Das ist ab v1.23.0 der Weg, den alle Aufrufer nehmen sollen.
     /// <see cref="Install"/> bleibt für den reinen PAK-Fall erhalten, wirft
     /// aber weiterhin bei allem anderen.</para></summary>
-    public ModInstallResult InstallAny(string sourcePath, bool overwrite = false)
+    /// <param name="autoRebuild">v1.24.0: ob nach dem Aufnehmen von
+    /// <c>.EXMODZ</c> gleich neu gebaut wird. Beim Stapel-Install auf
+    /// <c>false</c> setzen und einmal am Ende
+    /// <see cref="ExmodzService.Rebuild"/> rufen — ein Neubau liest alle
+    /// betroffenen Basistabellen, das je Datei zu tun ist verschwendete
+    /// Arbeit.</param>
+    public ModInstallResult InstallAny(string sourcePath, bool overwrite = false,
+        bool autoRebuild = true)
     {
         if (!File.Exists(sourcePath))
             throw new FileNotFoundException("Datei existiert nicht", sourcePath);
@@ -192,7 +240,7 @@ public sealed class PakInstallService
                 return ModInstallResult.FromPak(Install(sourcePath, overwrite), fileName);
 
             case IcarusFileKind.Archive:
-                return InstallArchive(sourcePath, fileName, overwrite);
+                return InstallArchive(sourcePath, fileName, overwrite, autoRebuild);
 
             default:
                 throw new InvalidDataException(
@@ -203,10 +251,10 @@ public sealed class PakInstallService
 
     /// <summary>Packt ein Mod-Archiv aus und sortiert seinen Inhalt ein:
     /// PAKs in den Mods-Ordner, UE4SS-Lua-Mods nach
-    /// <c>Binaries/Win64/Mods/</c>. Enthaltene <c>.EXMODZ</c>-Dateien werden
-    /// gezählt und gemeldet, aber noch nicht installiert — dafür braucht es
-    /// den Datentabellen-Zusammenbau aus v1.24.</summary>
-    private ModInstallResult InstallArchive(string archivePath, string fileName, bool overwrite)
+    /// <c>Binaries/Win64/Mods/</c>, <c>.EXMODZ</c> in die
+    /// Datentabellen-Ablage (und von dort ins gemeinsame Pak).</summary>
+    private ModInstallResult InstallArchive(string archivePath, string fileName, bool overwrite,
+        bool autoRebuild)
     {
         var contents = IcarusArchive.Inspect(archivePath);
         if (!contents.IsReadable)
@@ -273,7 +321,78 @@ public sealed class PakInstallService
             }
         }
 
-        return new ModInstallResult(paks, luaMods, contents.ExmodzEntries, fileName, luaError);
+        IReadOnlyList<string> exmodzMods = [];
+        if (contents.HasExmodz)
+        {
+            if (_exmodz is null)
+            {
+                luaError = (luaError is null ? "" : luaError + " ")
+                    + "Datentabellen-Dienst nicht verfügbar — die .EXMODZ wurden nicht aufgenommen.";
+            }
+            else
+            {
+                try
+                {
+                    exmodzMods = InstallExmodzFromArchive(archivePath, contents.ExmodzEntries, fileName);
+                    if (exmodzMods.Count > 0 && autoRebuild) _exmodz.Rebuild();
+                }
+                catch (Exception ex)
+                {
+                    luaError = (luaError is null ? "" : luaError + " ") + ex.Message;
+                    Log.Warn(ex, "Datentabellen-Teil des Archivs fehlgeschlagen: {File}", fileName);
+                }
+            }
+        }
+
+        return new ModInstallResult(paks, luaMods, exmodzMods, contents.ExmodzEntries.Count,
+            fileName, luaError);
+    }
+
+    /// <summary>Holt die <c>.EXMODZ</c>-Dateien aus dem Archiv und übergibt
+    /// sie der Ablage.
+    ///
+    /// <para><b>Nur eine pro Archiv wird aufgenommen</b>, nicht alle. Der
+    /// Grund steckt in OreDepot: dort liegen <c>OreDepot.EXMODZ</c> und
+    /// <c>OreDepot_PTBR.EXMODZ</c> nebeneinander — dieselbe Mod mit
+    /// deutschem bzw. brasilianischem Item-Namen. Beide aufzunehmen würde
+    /// dieselben Zeilen zweimal setzen und im Spiel doppelte Einträge
+    /// erzeugen. Genommen wird die Datei mit dem kürzesten Namen; die
+    /// sprachlichen Varianten tragen durchweg ein Suffix.</para>
+    ///
+    /// <para>Der Nexus-Bezug kommt aus dem Namen der <b>Archiv</b>-Datei,
+    /// nicht aus dem der .EXMODZ: das Archiv ist der Download, und nur
+    /// dessen Name folgt dem Nexus-Muster.</para></summary>
+    private IReadOnlyList<string> InstallExmodzFromArchive(string archivePath,
+        IReadOnlyList<string> exmodzEntries, string archiveFileName)
+    {
+        if (_exmodz is null || exmodzEntries.Count == 0) return [];
+
+        var chosen = exmodzEntries
+            .OrderBy(e => Path.GetFileName(e).Length)
+            .ThenBy(e => e, StringComparer.OrdinalIgnoreCase)
+            .First();
+        if (exmodzEntries.Count > 1)
+            Log.Info("Archiv enthält {Count} .EXMODZ — genommen wird {Chosen}, " +
+                "die anderen sind sprachliche Varianten derselben Mod",
+                exmodzEntries.Count, chosen);
+
+        var nexusModId = Nexus.NexusFileNameParser.TryExtractModId(archiveFileName);
+        var tmpDir = Path.Combine(Path.GetTempPath(), "kromodix-exmodz-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            using var archive = ArchiveFactory.Open(archivePath);
+            var entry = archive.Entries.First(e =>
+                !e.IsDirectory && (e.Key ?? "").Replace('\\', '/') == chosen);
+            var tmpFile = Path.Combine(tmpDir, Path.GetFileName(chosen));
+            IcarusArchive.ExtractOne(entry, tmpFile);
+            var installed = _exmodz.Install(tmpFile, nexusModId);
+            return [installed.DisplayName];
+        }
+        finally
+        {
+            try { Directory.Delete(tmpDir, recursive: true); } catch { /* Temp-Rest */ }
+        }
     }
 
     public InstalledPakMod Install(string sourcePakPath, bool overwrite = false)
@@ -310,6 +429,16 @@ public sealed class PakInstallService
             _lua.Uninstall(ToLuaMod(mod));
             return;
         }
+        if (mod.Source == PakModSource.Exmodz)
+        {
+            if (_exmodz is null)
+                throw new InvalidOperationException("Datentabellen-Dienst nicht verfügbar.");
+            _exmodz.Uninstall(ExmodzId(mod));
+            // Das gebaute Pak enthaelt den Stand MIT dieser Mod — es muss
+            // weg, sonst wirkt die deinstallierte Mod weiter.
+            _exmodz.Rebuild();
+            return;
+        }
         if (!File.Exists(mod.FilePath))
         {
             Log.Warn("Icarus-Uninstall: Datei bereits weg: {Path}", mod.FilePath);
@@ -330,6 +459,17 @@ public sealed class PakInstallService
                 throw new InvalidOperationException("UE4SS-Pfade unbekannt.");
             var updated = _lua.SetEnabled(ToLuaMod(mod), enabled);
             return mod with { IsEnabled = updated.IsEnabled };
+        }
+        if (mod.Source == PakModSource.Exmodz)
+        {
+            if (_exmodz is null)
+                throw new InvalidOperationException("Datentabellen-Dienst nicht verfügbar.");
+            _exmodz.SetEnabled(ExmodzId(mod), enabled);
+            // Umschalten aendert das Ergebnis des Zusammenbaus, also neu
+            // bauen. Anders als bei einem PAK gibt es hier keine Datei im
+            // Spiel, die man einfach umbenennen koennte.
+            _exmodz.Rebuild();
+            return mod with { IsEnabled = enabled };
         }
         if (mod.IsEnabled == enabled) return mod;
         var current = mod.FilePath;
@@ -428,27 +568,30 @@ public sealed record DownloadedPak(
 /// kann mehrere Dinge auf einmal mitbringen, deshalb Listen statt eines
 /// einzelnen Rückgabewerts.
 ///
-/// <para><see cref="ExmodzFiles"/> sind gefundene, aber noch nicht
-/// installierte Datentabellen-Mods. Sie werden bewusst gemeldet statt
-/// stillschweigend übersprungen: sonst klickt der User „installieren", sieht
-/// eine Erfolgsmeldung und wundert sich im Spiel, warum das neue Item
-/// fehlt.</para></summary>
+/// <para><see cref="ExmodzMods"/> sind die aufgenommenen
+/// Datentabellen-Mods. <see cref="ExmodzFound"/> ist dagegen, wie viele
+/// <c>.EXMODZ</c> im Archiv lagen — die Zahl kann höher sein, weil von
+/// mehreren sprachlichen Varianten derselben Mod nur eine aufgenommen
+/// wird.</para></summary>
 public sealed record ModInstallResult(
     IReadOnlyList<InstalledPakMod> Paks,
     IReadOnlyList<string> Ue4ssMods,
-    IReadOnlyList<string> ExmodzFiles,
+    IReadOnlyList<string> ExmodzMods,
+    int ExmodzFound,
     string SourceFileName,
     string? Warning = null)
 {
     public static ModInstallResult FromPak(InstalledPakMod pak, string sourceFileName)
-        => new([pak], [], [], sourceFileName);
+        => new([pak], [], [], 0, sourceFileName);
 
-    /// <summary>Ob überhaupt etwas installiert wurde. Ein Archiv, das nur
-    /// .EXMODZ enthält, ist in v1.23 genau dieser Fall — und darf nicht als
-    /// Erfolg gemeldet werden.</summary>
-    public bool InstalledAnything => Paks.Count > 0 || Ue4ssMods.Count > 0;
+    /// <summary>Ob überhaupt etwas installiert wurde.</summary>
+    public bool InstalledAnything
+        => Paks.Count > 0 || Ue4ssMods.Count > 0 || ExmodzMods.Count > 0;
 
-    public bool HasPendingExmodz => ExmodzFiles.Count > 0;
+    /// <summary>Ob eine Datentabellen-Mod dabei war — dann muss der Aufrufer
+    /// das gemeinsame Pak (neu) bauen, falls er den Automatik-Bau
+    /// abgeschaltet hat.</summary>
+    public bool TouchedExmodz => ExmodzMods.Count > 0;
 
     /// <summary>Kurzfassung für die Benachrichtigung — nennt, was wirklich
     /// passiert ist, statt eines pauschalen „installiert".</summary>
@@ -459,6 +602,8 @@ public sealed record ModInstallResult(
         else if (Paks.Count > 1) parts.Add($"{Paks.Count} PAK-Mods");
         if (Ue4ssMods.Count == 1) parts.Add($"Lua-Mod {Ue4ssMods[0]}");
         else if (Ue4ssMods.Count > 1) parts.Add($"{Ue4ssMods.Count} Lua-Mods");
+        if (ExmodzMods.Count == 1) parts.Add($"Datentabellen-Mod {ExmodzMods[0]}");
+        else if (ExmodzMods.Count > 1) parts.Add($"{ExmodzMods.Count} Datentabellen-Mods");
         return parts.Count == 0 ? SourceFileName : string.Join(" + ", parts);
     }
 }

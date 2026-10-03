@@ -107,12 +107,14 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     [ObservableProperty] private bool _showManual = true;
     [ObservableProperty] private bool _showWorkshop = true;
     [ObservableProperty] private bool _showLua = true;
+    [ObservableProperty] private bool _showExmodz = true;
 
     partial void OnSelectedChanged(PakRow? value) => OnPropertyChanged(nameof(HasSelection));
     partial void OnSearchTextChanged(string value) => ApplyFilter();
     partial void OnShowManualChanged(bool value) => ApplyFilter();
     partial void OnShowWorkshopChanged(bool value) => ApplyFilter();
     partial void OnShowLuaChanged(bool value) => ApplyFilter();
+    partial void OnShowExmodzChanged(bool value) => ApplyFilter();
 
     private void InitEvents()
     {
@@ -193,7 +195,8 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                          {
                              PakModSource.Manual => 0,
                              PakModSource.Ue4ssLua => 1,
-                             _ => 2,
+                             PakModSource.Exmodz => 2,
+                             _ => 3,
                          })
                          .ThenByDescending(m => m.IsEnabled)
                          .ThenBy(m => m.FileName, StringComparer.CurrentCultureIgnoreCase))
@@ -206,6 +209,13 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
                     row.NexusModId = NexusFileNameParser.TryExtractModId(m.FileName);
                     row.ModName = NexusFileNameParser.TryExtractModName(m.FileName);
                 }
+                // v1.24.0: bei Datentabellen-Mods stehen Autor und Version
+                // schon im Manifest. Das Nexus-Enrichment laeuft hier nicht,
+                // weil die Mod-Identitaet die .EXMODZ ist und nicht ein
+                // Nexus-Dateiname — ohne diese Zeilen blieben die Felder leer.
+                if (m.ModAuthor is { Length: > 0 }) row.Author = m.ModAuthor;
+                if (m.ModVersion is { Length: > 0 }) row.Version = m.ModVersion;
+                if (m.NexusModId is int id) row.NexusModId = id;
                 _allMods.Add(row);
             }
 
@@ -220,6 +230,9 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             // nur Rauschen in der Statuszeile.
             if (luaCount > 0)
                 Summary += " " + string.Format(Strings.T("status.mod_summary_lua"), luaCount);
+            var exmodzCount = _allMods.Count(r => r.IsExmodz);
+            if (exmodzCount > 0)
+                Summary += " " + string.Format(Strings.T("status.mod_summary_exmodz"), exmodzCount);
         }
         catch (Exception ex)
         {
@@ -227,6 +240,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             Summary = Strings.T("status.mods_load_error");
         }
         RefreshUe4ssStatus();
+        RefreshExmodzStatus();
         ApplyFilter();
 
         // Async-Enrichment im Hintergrund für Manual-Rows mit Nexus-Filename.
@@ -352,6 +366,7 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             if (row.IsManual && !ShowManual) continue;
             if (row.IsWorkshop && !ShowWorkshop) continue;
             if (row.IsLua && !ShowLua) continue;
+            if (row.IsExmodz && !ShowExmodz) continue;
             if (q.Length > 0 && !row.FileName.Contains(q, StringComparison.OrdinalIgnoreCase)) continue;
             Mods.Add(row);
         }
@@ -805,10 +820,12 @@ public sealed partial class PakRow : ObservableObject
     public bool IsWorkshop => Source.Source == PakModSource.Workshop;
     public bool IsManual => Source.Source == PakModSource.Manual;
     public bool IsLua => Source.Source == PakModSource.Ue4ssLua;
+    public bool IsExmodz => Source.Source == PakModSource.Exmodz;
     public string SourceBadge => Source.Source switch
     {
         PakModSource.Workshop => Strings.T("badge.workshop"),
         PakModSource.Ue4ssLua => Strings.T("badge.lua"),
+        PakModSource.Exmodz => Strings.T("badge.exmodz"),
         _ => "",
     };
 

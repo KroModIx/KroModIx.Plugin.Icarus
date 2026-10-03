@@ -9,9 +9,9 @@ namespace KroModIx.Plugin.Icarus.Views;
 ///
 /// <para>Der Grund für eine eigene Klasse ist der Teil-Erfolg. Ein
 /// Icarus-Mod-Archiv bringt bis zu drei Dinge mit (PAKs, UE4SS-Lua-Mods,
-/// Datentabellen-Mods), und v1.23 kann die dritte Art noch nicht einbauen.
-/// Ein pauschales „installiert" wäre in dem Fall eine Falschaussage: der
-/// User sieht Erfolg, sucht im Spiel das neue Item und findet es nicht.</para></summary>
+/// Datentabellen-Mods), und jedes davon kann für sich scheitern. Ein
+/// pauschales „installiert" wäre dann eine Falschaussage: der User sieht
+/// Erfolg, sucht im Spiel das neue Item und findet es nicht.</para></summary>
 internal static class ModInstallReporter
 {
     /// <summary>Gibt zurück, ob wirklich etwas installiert wurde — der
@@ -21,11 +21,8 @@ internal static class ModInstallReporter
     {
         if (!result.InstalledAnything)
         {
-            // Der einzige Weg hierher: ein Archiv, das ausschliesslich
-            // .EXMODZ enthaelt.
             host.Notifications.Notify(
-                string.Format(Strings.T("notify.install_exmodz_only"),
-                    result.SourceFileName, result.ExmodzFiles.Count),
+                string.Format(Strings.T("notify.install_nothing"), result.SourceFileName),
                 NotificationLevel.Warning);
             return false;
         }
@@ -38,13 +35,17 @@ internal static class ModInstallReporter
         var level = NotificationLevel.Success;
         if (result.Warning is { Length: > 0 } warning)
         {
-            message += " " + string.Format(Strings.T("notify.install_lua_failed"), warning);
+            message += " " + string.Format(Strings.T("notify.install_part_failed"), warning);
             level = NotificationLevel.Warning;
         }
-        if (result.HasPendingExmodz)
+        // Lagen mehr .EXMODZ im Archiv als aufgenommen wurden, ist das keine
+        // Panne, sondern der Normalfall bei sprachlichen Varianten derselben
+        // Mod — aber der User soll es wissen, bevor er die fehlende Variante
+        // sucht.
+        if (result.ExmodzFound > result.ExmodzMods.Count && result.ExmodzMods.Count > 0)
         {
-            message += " " + string.Format(Strings.T("notify.install_exmodz_pending"),
-                result.ExmodzFiles.Count);
+            message += " " + string.Format(Strings.T("notify.install_exmodz_variants"),
+                result.ExmodzFound, result.ExmodzMods.Count);
             if (level == NotificationLevel.Success) level = NotificationLevel.Info;
         }
 

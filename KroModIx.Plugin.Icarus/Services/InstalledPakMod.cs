@@ -17,6 +17,11 @@ public enum PakModSource
     /// bei den PAKs: nicht über eine Dateiendung, sondern über die
     /// <c>enabled.txt</c> im Mod-Ordner.</summary>
     Ue4ssLua,
+    /// <summary>Datentabellen-Mod (<c>.EXMODZ</c>, v1.24.0). Liegt als Quelle
+    /// im Plugin-Datenordner und nicht im Spiel — ins Spiel geht nur das
+    /// daraus gebaute gemeinsame Pak. Genau deshalb ist ein Neubau nach einem
+    /// Spiel-Update überhaupt möglich.</summary>
+    Exmodz,
 }
 
 /// <summary>Eine installierte Icarus-Mod — PAK im Mods-Ordner, Steam-Workshop-
@@ -31,7 +36,14 @@ public enum PakModSource
 /// <para><see cref="WorkshopId"/> ist die Steam-Workshop-Item-ID (nur bei
 /// <see cref="PakModSource.Workshop"/> gesetzt, sonst 0).
 /// <see cref="ScriptCount"/> ist die Zahl der <c>.lua</c>-Dateien (nur bei
-/// <see cref="PakModSource.Ue4ssLua"/>, sonst 0).</para></summary>
+/// <see cref="PakModSource.Ue4ssLua"/>, sonst 0).</para>
+///
+/// <para><see cref="ModVersion"/>, <see cref="ModAuthor"/> und
+/// <see cref="NexusModId"/> sind Metadaten, die <b>nicht</b> aus Nexus
+/// kommen, sondern schon beim Scan bekannt sind — bei
+/// <see cref="PakModSource.Exmodz"/> stehen sie im Manifest der Mod. Bei den
+/// PAK-Quellen bleiben sie null, dort füllt das Nexus-Enrichment die
+/// entsprechenden Row-Felder nach.</para></summary>
 public sealed record InstalledPakMod(
     string FilePath,
     string FileName,
@@ -40,4 +52,7 @@ public sealed record InstalledPakMod(
     bool IsEnabled,
     PakModSource Source,
     long WorkshopId = 0,
-    int ScriptCount = 0);
+    int ScriptCount = 0,
+    string? ModVersion = null,
+    string? ModAuthor = null,
+    int? NexusModId = null);

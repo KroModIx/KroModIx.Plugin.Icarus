@@ -43,6 +43,7 @@ public sealed class InstalledPaksView : UserControl
             {
                 WithDock(BuildToolbar(), Dock.Top),
                 WithDock(BuildUe4ssSection(), Dock.Top),
+                WithDock(BuildExmodzSection(), Dock.Top),
                 WithDock(BuildFilterRow(), Dock.Top),
                 WithDock(BuildPathLabel(), Dock.Top),
                 WithDock(BuildSummary(), Dock.Bottom),
@@ -148,27 +149,34 @@ public sealed class InstalledPaksView : UserControl
         luaToggle.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(InstalledPaksViewModel.ShowLua))
         { Mode = BindingMode.TwoWay });
 
+        var exmodzToggle = new ToggleButton { Content = Strings.T("toggle.exmodz") };
+        exmodzToggle.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(InstalledPaksViewModel.ShowExmodz))
+        { Mode = BindingMode.TwoWay });
+
         var count = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         count.Classes.Add("muted");
         count.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.SelectedCountLabel)));
 
         var grid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto,Auto"),
             Margin = new Thickness(0, 0, 0, 10),
         };
         Grid.SetColumn(_searchBox!, 0);
         Grid.SetColumn(manualToggle, 1);
         Grid.SetColumn(workshopToggle, 2);
         Grid.SetColumn(luaToggle, 3);
-        Grid.SetColumn(count, 4);
+        Grid.SetColumn(exmodzToggle, 4);
+        Grid.SetColumn(count, 5);
         manualToggle.Margin = new Thickness(8, 0, 4, 0);
         workshopToggle.Margin = new Thickness(4, 0, 4, 0);
-        luaToggle.Margin = new Thickness(4, 0, 12, 0);
+        luaToggle.Margin = new Thickness(4, 0, 4, 0);
+        exmodzToggle.Margin = new Thickness(4, 0, 12, 0);
         grid.Children.Add(_searchBox!);
         grid.Children.Add(manualToggle);
         grid.Children.Add(workshopToggle);
         grid.Children.Add(luaToggle);
+        grid.Children.Add(exmodzToggle);
         grid.Children.Add(count);
         return grid;
     }
@@ -271,6 +279,86 @@ public sealed class InstalledPaksView : UserControl
         return card;
     }
 
+    /// <summary>Der Datentabellen-Abschnitt: Zustand des gemeinsam gebauten
+    /// Paks und der Neubau-Knopf.
+    ///
+    /// <para>Auch hier ist der <b>Zustandstext</b> der eigentliche Inhalt,
+    /// nicht der Knopf. „Icarus wurde aktualisiert, das Pak steht auf dem
+    /// alten Stand" ist eine Lage, die der User sonst nicht erkennen kann:
+    /// die Mod liegt ordentlich in der Liste, das Pak liegt im Mods-Ordner,
+    /// und im Spiel stimmen trotzdem Werte nicht.</para></summary>
+    private static Control BuildExmodzSection()
+    {
+        var heading = new TextBlock { Text = Strings.T("exmodz.section") };
+        heading.Classes.Add("section-label");
+
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        status.Bind(TextBlock.TextProperty, new Binding(nameof(InstalledPaksViewModel.ExmodzStatusText)));
+
+        // Der Hinweis auf ein fremdes Merged-Pak in Danger-Rot: er bedeutet,
+        // dass unsere Aenderungen wirkungslos bleiben koennen.
+        var conflict = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            [!TextBlock.ForegroundProperty] = new DynamicResourceExtension("KrosteDangerBrush"),
+        };
+        conflict.Bind(TextBlock.TextProperty,
+            new Binding(nameof(InstalledPaksViewModel.ExmodzConflictText)));
+        conflict.Bind(TextBlock.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.HasExmodzConflict)));
+
+        // Zwei Knöpfe statt einer mit wechselnder Style-Klasse: `Classes` ist
+        // in Avalonia keine StyledProperty und lässt sich nicht binden. Der
+        // Akzent soll aber nur leuchten, wenn ein Neubau wirklich fällig ist
+        // — sonst wäre der auffälligste Knopf des Tabs dauerhaft laut und das
+        // Signal wertlos.
+        var rebuildUrgent = new Button { Content = Strings.T("exmodz.btn_rebuild") };
+        rebuildUrgent.Classes.Add("accent");
+        rebuildUrgent.Bind(Button.CommandProperty,
+            new Binding(nameof(InstalledPaksViewModel.RebuildExmodzCommand)));
+        rebuildUrgent.Bind(Button.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.ExmodzNeedsRebuild)));
+
+        var rebuildCalm = new Button { Content = Strings.T("exmodz.btn_rebuild") };
+        rebuildCalm.Bind(Button.CommandProperty,
+            new Binding(nameof(InstalledPaksViewModel.RebuildExmodzCommand)));
+        rebuildCalm.Bind(Button.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.ExmodzNeedsRebuild))
+            {
+                Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
+            });
+
+        var buttons = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            ItemSpacing = 6, LineSpacing = 6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            Children = { rebuildUrgent, rebuildCalm },
+        };
+
+        var texts = new StackPanel
+        {
+            Spacing = 0,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { heading, status, conflict },
+        };
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        Grid.SetColumn(texts, 0);
+        Grid.SetColumn(buttons, 1);
+        grid.Children.Add(texts);
+        grid.Children.Add(buttons);
+
+        var card = new Border { Padding = new Thickness(14, 10, 14, 12), Margin = new Thickness(0, 0, 0, 10) };
+        card.Classes.Add("card");
+        card.Child = grid;
+        card.Bind(Border.IsVisibleProperty,
+            new Binding(nameof(InstalledPaksViewModel.ShowExmodzSection)));
+        return card;
+    }
+
     private static Control BuildPathLabel()
     {
         var text = new TextBlock
@@ -354,6 +442,7 @@ public sealed class InstalledPaksView : UserControl
             {
                 new Binding(nameof(PakRow.IsWorkshop)),
                 new Binding(nameof(PakRow.IsLua)),
+                new Binding(nameof(PakRow.IsExmodz)),
             },
             Converter = new SourceEmojiConverter(),
         });
@@ -403,6 +492,13 @@ public sealed class InstalledPaksView : UserControl
         var luaBadge = MakeBadge(Strings.T("badge.lua"), "KrosteAccentSoftBrush", Brushes.White);
         luaBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsLua)));
         titleRow.Children.Add(luaBadge);
+
+        // Tabellen-Badge — eine Datentabellen-Mod liegt nicht als Datei im
+        // Spiel, sondern wirkt ueber das gemeinsam gebaute Pak. Das muss in
+        // der Row sichtbar sein, sonst sucht der User sie im Mods-Ordner.
+        var exmodzBadge = MakeBadge(Strings.T("badge.exmodz"), "KrosteAccentSoftBrush", Brushes.White);
+        exmodzBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsExmodz)));
+        titleRow.Children.Add(exmodzBadge);
 
         // Update-Badge (Kroste-Gold auf schwarz) — nur wenn CheckUpdatesAsync
         // ein neueres Version bei Nexus entdeckt hat.
@@ -664,8 +760,9 @@ public sealed class InstalledPaksView : UserControl
         return files.Any(f => Services.Archive.IcarusArchive.HasSupportedExtension(f.Path.LocalPath));
     }
 
-    /// <summary>Emoji nach Mod-Quelle. Eingabe ist [IsWorkshop, IsLua];
-    /// was keins von beidem ist, ist ein manuelles PAK.</summary>
+    /// <summary>Emoji nach Mod-Quelle. Eingabe ist
+    /// [IsWorkshop, IsLua, IsExmodz]; was nichts davon ist, ist ein
+    /// manuelles PAK.</summary>
     private sealed class SourceEmojiConverter : Avalonia.Data.Converters.IMultiValueConverter
     {
         public object? Convert(System.Collections.Generic.IList<object?> values,
@@ -673,8 +770,10 @@ public sealed class InstalledPaksView : UserControl
         {
             var isWorkshop = values.Count > 0 && values[0] is bool w && w;
             var isLua = values.Count > 1 && values[1] is bool l && l;
+            var isExmodz = values.Count > 2 && values[2] is bool x && x;
             if (isWorkshop) return "🗻";
-            return isLua ? "🐍" : "📦";
+            if (isLua) return "🐍";
+            return isExmodz ? "🧩" : "📦";
         }
     }
 

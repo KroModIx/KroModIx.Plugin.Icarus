@@ -8,6 +8,7 @@ using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services;
 using KroModIx.Plugin.Icarus.Services.Nexus;
 using KroModIx.Plugin.Icarus.Services.Ue4ss;
+using KroModIx.Plugin.Icarus.Services.Exmodz;
 using KroModIx.Plugin.Icarus.Views;
 
 namespace KroModIx.Plugin.Icarus;
@@ -92,14 +93,36 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
                 host.Logger.Info("Icarus: Binaries/Win64 nicht gefunden — UE4SS-Teil bleibt aus fuer {Game}",
                     game.Target.DisplayName);
 
-            var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir, lua);
+            // v1.24.0: Datentabellen-Mods. Die .EXMODZ liegen im
+            // Plugin-Datenordner (nicht im Spiel), ins Spiel geht nur das
+            // daraus gebaute gemeinsame Pak — genau deshalb ist ein Neubau
+            // nach einem Spiel-Update ueberhaupt moeglich.
+            var exmodzStore = new ExmodzStore(_paths);
+            var exmodz = new ExmodzService(exmodzStore, manualDir, game);
+            if (!exmodz.IsSupported)
+                host.Logger.Info("Icarus: Content/Data/data.pak nicht gefunden — " +
+                    "Datentabellen-Mods bleiben aus fuer {Game}", game.Target.DisplayName);
+
+            var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir,
+                lua, exmodz);
             _installers[game.Target.GameId] = installer;
             _backups[game.Target.GameId] = new PakBackupService(installer);
             _updateCheckers[game.Target.GameId] = new InstalledUpdatesChecker(
                 installer, _nexusApi, _nexusSettings, _installedUpdatesTracker);
-            host.Logger.Info("Icarus initialisiert: manual={Manual}, workshop={Workshop}, downloads={Downloads}, ue4ss={Ue4ss}",
+            host.Logger.Info("Icarus initialisiert: manual={Manual}, workshop={Workshop}, " +
+                "downloads={Downloads}, ue4ss={Ue4ss}, data={Data}",
                 manualDir, workshopDir ?? "(none)", _paths.DownloadsDir,
-                ue4ssPaths.FindModsDir() ?? ue4ssPaths.Win64Dir ?? "(none)");
+                ue4ssPaths.FindModsDir() ?? ue4ssPaths.Win64Dir ?? "(none)",
+                exmodz.BasePakPath ?? "(none)");
+
+            // Nach einem Spiel-Update passt das gebaute Pak nicht mehr zu den
+            // Basistabellen. Das beim Start einmal protokollieren — der
+            // Installiert-Tab sagt es dem User, aber im Log steht dann auch
+            // ohne geoeffneten Tab, warum eine Mod nicht mehr wirkt.
+            var staleness = exmodz.CheckStaleness();
+            if (staleness is not (ExmodzStore.Staleness.UpToDate or ExmodzStore.Staleness.NothingToBuild))
+                host.Logger.Info("Icarus: das zusammengebaute Datentabellen-Pak ist nicht aktuell ({State})",
+                    staleness);
         }
 
         // Auto-Check bei Plugin-Init.
