@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using FluentAssertions;
 using KroModIx.Plugin.Icarus.Services.Archive;
+using KroModIx.Plugin.TestKit;
 using Xunit;
 
 namespace KroModIx.Plugin.Icarus.Tests;

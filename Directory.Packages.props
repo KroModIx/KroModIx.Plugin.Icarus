@@ -2,7 +2,11 @@
   <ItemGroup>
     <!-- v1.30.0: IArchiveService, IUnrealPakService und IWinePrefixService —
          Archiv-, Pak- und Wine-Praefix-Arbeit liegt jetzt im Host. -->
-    <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.30.0" />
+    <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.33.0" />
+    <!-- v1.26.0: Attrappen der Host-Baukaesten fuer das Testprojekt, aus
+         demselben Tag wie die Contracts. Ersetzen die handgeschriebenen
+         Kopien in FakeHostServices.cs. -->
+    <PackageVersion Include="KroModIx.Plugin.TestKit" Version="1.33.0" />
     <PackageVersion Include="Avalonia" Version="12.1.0" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="MinVer" Version="7.0.0" />

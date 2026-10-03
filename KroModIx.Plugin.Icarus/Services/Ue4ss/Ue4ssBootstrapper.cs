@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using KroModIx.Plugin.Contracts;
@@ -25,11 +24,13 @@ public sealed record Ue4ssInstallResult(bool Ok, string Message, string? Version
 /// <c>Icarus/Binaries/Win64/</c> auspacken — genau die Reibung, die ein
 /// Mod-Manager wegnehmen soll.
 ///
-/// <para>Gebaut nach dem Muster von <c>BepInExBootstrapper</c> aus dem
-/// DSP-Plugin: erst die GitHub-API für die neueste stabile Ausgabe, bei
-/// Fehlschlag (Ratenbegrenzung, Netz weg) eine fest hinterlegte
-/// Ausweich-URL. Das CDN von GitHub erlaubt anonyme Downloads ohne
-/// Ratenbegrenzung, die API nicht.</para>
+/// <para><b>Seit v1.26.0 über <c>IHostServices.GitHub</c></b> (Host
+/// v1.33.0), und <b>die fest hinterlegte Ausweich-URL ist weg.</b> Sie
+/// zeigte auf <c>v3.0.1</c> und wäre mit jeder neuen UE4SS-Ausgabe weiter
+/// veraltet — wer beim GitHub-Limit landet, hätte stillschweigend eine alte
+/// Fassung bekommen, ohne es zu erfahren. Der Umleitungs-Pfad des
+/// Baukastens liefert stattdessen immer den aktuellen Tag; der Dateiname ist
+/// <c>UE4SS_&lt;tag&gt;.zip</c>, also aus dem Tag zu bilden.</para>
 ///
 /// <para><b>Icarus läuft auf Unreal Engine 4</b> — belegt an den
 /// Pfadangaben in <c>Icarus-Win64-Shipping.pdb</c>, die durchweg
@@ -46,21 +47,16 @@ public sealed class Ue4ssBootstrapper
 {
     private static readonly Logger Log = LogManager.GetCurrentClassLogger();
 
-    private const string ReleasesApi = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases";
-
-    /// <summary>Ausweich-Ziel, wenn die GitHub-API nicht antwortet. v3.0.1
-    /// ist die neueste stabile Ausgabe (Stand 10/2026) und die, gegen die
-    /// der Lua-Mod-Pfad dieses Plugins entwickelt wurde.</summary>
-    private const string FallbackAsset =
-        "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip";
-    private const string FallbackVersion = "v3.0.1";
+    private const string Repo = "UE4SS-RE/RE-UE4SS";
 
     private readonly HttpClient _http;
+    private readonly IGitHubService _gitHub;
     private readonly IArchiveService _archives;
 
-    public Ue4ssBootstrapper(HttpClient http, IArchiveService archives)
+    public Ue4ssBootstrapper(HttpClient http, IGitHubService gitHub, IArchiveService archives)
     {
         _http = http;
+        _gitHub = gitHub;
         _archives = archives;
     }
 
@@ -77,7 +73,14 @@ public sealed class Ue4ssBootstrapper
         try
         {
             progress?.Report(0.05);
-            var (url, version) = await TryFindLatestAsync(ct);
+            var (url, tag) = await TryFindLatestAsync(ct);
+            if (url is null)
+                return Ue4ssInstallResult.Fail(
+                    "Kein UE4SS-Release gefunden — weder über die GitHub-API noch über den "
+                    + "Umleitungs-Pfad. Besteht eine Internetverbindung?");
+            // Der Tag ist immer gesetzt, wenn eine URL gefunden wurde — beide
+            // kommen aus derselben Antwort. Der Compiler weiss das nicht.
+            var version = tag ?? "unbekannt";
             Log.Info("UE4SS {Version} wird geladen: {Url}", version, url);
 
             progress?.Report(0.15);
@@ -87,12 +90,26 @@ public sealed class Ue4ssBootstrapper
             {
                 await DownloadAsync(url, tmpZip, progress, ct);
                 progress?.Report(0.85);
-                var files = Extract(_archives, tmpZip, win64);
+                var result = Extract(_archives, tmpZip, win64);
+                if (result.SkippedUnsafe.Count > 0)
+                {
+                    // Bei UE4SS selbst waere das ein Alarmzeichen: das ist
+                    // ein Release eines bekannten Projekts, nicht ein
+                    // Nutzer-Archiv. Lieber abbrechen und melden, statt den
+                    // Rest einzuspielen — bis v1.25.0 wurde hier nur
+                    // protokolliert und trotzdem Erfolg gemeldet.
+                    Log.Warn("UE4SS-Archiv enthielt {Count} Ausbruchsversuch(e): {Entries}",
+                        result.SkippedUnsafe.Count, string.Join(", ", result.SkippedUnsafe));
+                    return Ue4ssInstallResult.Fail(
+                        $"Das UE4SS-Archiv enthielt {result.SkippedUnsafe.Count} Eintrag/Einträge, "
+                        + "die aus dem Win64-Verzeichnis herausschreiben wollten. Abgebrochen — "
+                        + "das sollte bei einem offiziellen Release nicht vorkommen.");
+                }
                 progress?.Report(1.0);
                 Log.Info("UE4SS {Version} installiert: {Count} Datei(en) → {Dir}",
-                    version, files, win64);
+                    version, result.Count, win64);
                 return Ue4ssInstallResult.Success(
-                    $"UE4SS {version} installiert ({files} Dateien).", version);
+                    $"UE4SS {version} installiert ({result.Count} Dateien).", version);
             }
             finally
             {
@@ -110,51 +127,28 @@ public sealed class Ue4ssBootstrapper
         }
     }
 
-    /// <summary>Neueste stabile Ausgabe über die GitHub-API; bei jedem
-    /// Fehlschlag die Ausweich-URL. Vorab-Ausgaben werden übersprungen —
-    /// der experimentelle Bau hat unter Proton eine andere Einhäng-Mechanik
-    /// und ist nicht der Pfad, den dieses Plugin absichert.</summary>
-    private async Task<(string Url, string Version)> TryFindLatestAsync(CancellationToken ct)
+    /// <summary>Neueste stabile Ausgabe über den Host-Baukasten; greift die
+    /// Raten-Sperre, kennt er nur den Tag — dann wird die URL aus Tag und
+    /// Namenskonvention gebildet. Vorab-Ausgaben überspringt der Baukasten
+    /// selbst: der experimentelle Bau hat unter Proton eine andere
+    /// Einhäng-Mechanik und ist nicht der Pfad, den dieses Plugin
+    /// absichert.</summary>
+    private async Task<(string? Url, string? Version)> TryFindLatestAsync(CancellationToken ct)
     {
-        try
-        {
-            using var req = new HttpRequestMessage(HttpMethod.Get, ReleasesApi + "?per_page=15");
-            req.Headers.UserAgent.TryParseAdd("KroModIx-Icarus-Plugin/1.0");
-            req.Headers.Accept.TryParseAdd("application/vnd.github+json");
-            // Optional: GITHUB_TOKEN aus der Umgebung → 5000 statt 60
-            // Anfragen pro Stunde (analog PluginUpdateService).
-            var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-            if (!string.IsNullOrEmpty(token))
-                req.Headers.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        var hit = await _gitHub.FindLatestAssetAsync(Repo, IsWantedAsset, ct)
+            .ConfigureAwait(false);
+        if (hit is not null)
+            return (hit.Value.Asset.DownloadUrl, hit.Value.Release.Tag);
 
-            using var resp = await _http.SendAsync(req, ct);
-            resp.EnsureSuccessStatusCode();
-            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var release = await _gitHub.GetLatestReleaseAsync(Repo, ct).ConfigureAwait(false);
+        if (release is null) return (null, null);
 
-            foreach (var rel in doc.RootElement.EnumerateArray())
-            {
-                if (rel.TryGetProperty("prerelease", out var pre) && pre.GetBoolean()) continue;
-                if (rel.TryGetProperty("draft", out var dr) && dr.GetBoolean()) continue;
-                var tag = rel.TryGetProperty("tag_name", out var t) ? t.GetString() : null;
-                if (!rel.TryGetProperty("assets", out var assets)) continue;
-                foreach (var a in assets.EnumerateArray())
-                {
-                    var name = a.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    if (name is null || !IsWantedAsset(name)) continue;
-                    var url = a.TryGetProperty("browser_download_url", out var u)
-                        ? u.GetString() : null;
-                    if (url is not null) return (url, tag ?? "unbekannt");
-                }
-            }
-            Log.Info("Kein passendes UE4SS-Asset in der API-Antwort — Ausweich-URL");
-        }
-        catch (Exception ex)
-        {
-            Log.Info(ex, "GitHub-API nicht erreichbar — Ausweich-URL für UE4SS");
-        }
-        return (FallbackAsset, FallbackVersion);
+        // Der Dateiname traegt den Tag: UE4SS_v3.0.1.zip zu v3.0.1.
+        var name = $"UE4SS_{release.Tag}.zip";
+        Log.Info("Dateiliste nicht abrufbar ({Grund}) — URL aus Tag {Tag} und Namenskonvention {Name}",
+            _gitHub.IsRateLimited ? "GitHub-Limit erreicht" : "keine passende Datei gemeldet",
+            release.Tag, name);
+        return (_gitHub.BuildAssetUrl(Repo, release.Tag, name), release.Tag);
     }
 
     /// <summary>Das Laufzeit-Archiv, nicht der Entwickler-Bau und nicht die
@@ -197,7 +191,8 @@ public sealed class Ue4ssBootstrapper
     /// unangetastet, wenn sie schon existieren — in beiden stehen
     /// Einstellungen des Users, und ein Loader-Update darf sie nicht
     /// zurücksetzen.</summary>
-    private static int Extract(IArchiveService archives, string zipPath, string win64Dir)
+    private static ArchiveExtractResult Extract(IArchiveService archives, string zipPath,
+        string win64Dir)
     {
         var keepIfPresent = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -216,8 +211,6 @@ public sealed class Ue4ssBootstrapper
             },
             Overwrite: true));
 
-        foreach (var skipped in result.SkippedUnsafe)
-            Log.Warn("Eintrag aus dem UE4SS-Archiv aus Sicherheitsgruenden uebersprungen: {Key}", skipped);
-        return result.Count;
+        return result;
     }
 }

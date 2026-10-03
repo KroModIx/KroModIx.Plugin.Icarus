@@ -5,6 +5,7 @@ using System.Linq;
 using FluentAssertions;
 using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services.Ue4ss;
+using KroModIx.Plugin.TestKit;
 using Xunit;
 
 namespace KroModIx.Plugin.Icarus.Tests;

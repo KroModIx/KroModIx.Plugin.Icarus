@@ -131,7 +131,7 @@ public sealed partial class InstalledPaksViewModel
         {
             using var scope = _host.BeginProgress(Strings.T("ue4ss.installing"));
             using var http = _host.CreateHttpClient("ue4ss");
-            var bootstrapper = new Ue4ssBootstrapper(http, _host.Archives);
+            var bootstrapper = new Ue4ssBootstrapper(http, _host.GitHub, _host.Archives);
             var progress = new Progress<double>(f => scope.Report(f, Strings.T("ue4ss.installing")));
             var result = await bootstrapper.InstallAsync(paths, progress);
 

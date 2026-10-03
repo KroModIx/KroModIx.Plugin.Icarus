@@ -11,6 +11,37 @@
 
 ## Aktueller Stand
 
+**v1.26.0 — GitHub-Releases aus dem Host, und die feste UE4SS-URL ist weg.**
+`Ue4ssBootstrapper` nutzt `IHostServices.GitHub` (Contracts v1.33.0);
+`minHostVersion` steht auf **1.33.0**.
+
+- **Die fest hinterlegte Ausweich-URL ist weg.** Sie zeigte auf `v3.0.1` und
+  wäre mit jeder neuen UE4SS-Ausgabe weiter veraltet. Wer beim GitHub-Limit
+  landete, bekam stillschweigend eine alte Fassung, ohne es zu erfahren. Der
+  Umleitungs-Pfad des Baukastens liefert den aktuellen Tag; der Dateiname
+  trägt ihn (`UE4SS_v3.0.1.zip` zu `v3.0.1`), also lässt sich die URL daraus
+  bilden — kein API-Aufruf, kein Limit, nicht veraltend.
+- **Ohne auffindbare Ausgabe wird gemeldet statt geraten.** Vorher lud der
+  Bootstrap die feste URL und tat, als wäre alles in Ordnung.
+- **Ein Ausbruchsversuch im Loader-Archiv bricht ab.** Bis v1.25.0 wurde der
+  abgelehnte Eintrag nur protokolliert und trotzdem Erfolg gemeldet. Bei
+  einem Release eines bekannten Projekts ist so ein Eintrag ein
+  Alarmzeichen, kein Randfall.
+- **Der Bootstrap war ungetestet**, weil es keine `IHostServices`-Attrappe
+  gab. Seit Host v1.33.0 liegt `FakeHostServices` im TestKit. Jetzt acht
+  Tests: welches der vier UE4SS-Archive genommen wird (nicht `zDEV-*`, nicht
+  die Beigaben), welche URL entsteht, der Raten-Sperren-Zweig, und dass
+  `UE4SS-settings.ini` und `Mods/mods.txt` beim Update erhalten bleiben,
+  bei der Erstinstallation aber mitkommen.
+- **Die handgeschriebenen Attrappen sind weg.** `FakeHostServices.cs` im
+  Testprojekt enthielt `FakeUnrealPakService` und `FakeArchiveService`; beide
+  liegen jetzt im Paket `KroModIx.Plugin.TestKit` aus demselben Host-Tag —
+  samt dem Ausbruch-Schutz, der dort **nicht** nachgebaut ist, sondern
+  dieselbe Funktion `ArchivePathSafety` aus den Contracts aufruft. 96 Tests.
+
+---
+
+
 **v1.25.0 — drei Baukästen in den Host gewandert:** Archiv-Behandlung,
 Unreal-Pak-Leser/-Schreiber und die Proton-DLL-Umleitung liegen jetzt im
 Host und kommen über `IHostServices.Archives`, `.UnrealPaks` und
@@ -216,8 +247,12 @@ den Host. v0.2 Bug-Fix `~mods` → `mods`.
   Proton-Praefixe kommen aus `IHostServices`. Bei einem neuen Bedarf dieser
   Art zuerst pruefen, ob der Host ihn schon hat — und wenn nicht, ob er
   dorthin gehoert (Kernprinzip 4). Die Entscheidung bei diesen drei fiel
-  nachgemessen: sechs Plugins oeffnen Archive, drei trugen eine eigene Kopie
-  desselben Ausbruch-Schutzes.
+  nachgemessen — und die erste Messung war falsch, weil sie vom Namen des
+  Helfers statt vom Verbraucher her suchte. Richtig: **neun** Plugins oeffnen
+  Archive, **sechs** trugen eine eigene Kopie des Ausbruch-Schutzes, und bei
+  **vier** davon hielt diese Kopie nicht — sie prueft nur auf `..`. Der
+  Ausbruch ist am Cyberpunk-Installer nachgewiesen (Datei ausserhalb des
+  InstallDir, Install meldete Erfolg).
 - **Lizenzlage der Referenz-Implementierungen**: `lmm`
   (DonovanMods/linux-mod-manager) und `go-unrealpak` sind MIT, also
   portierbar mit Attribution. **IcarusStarlink hat keine LICENSE-Datei** —

@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using FluentAssertions;
 using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services.Exmodz;
+using KroModIx.Plugin.TestKit;
 using Xunit;
 
 namespace KroModIx.Plugin.Icarus.Tests;
