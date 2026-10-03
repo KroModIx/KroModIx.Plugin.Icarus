@@ -31,7 +31,13 @@ public sealed class IcarusPathResolver
     {
         if (string.IsNullOrEmpty(game.InstallDir) || !Directory.Exists(game.InstallDir))
             return null;
-        return Path.Combine(game.InstallDir, "Icarus", "Content", "Paks", "mods");
+        // v1.22.0: ueber ModFolderDiscovery statt fest — unter Linux wurde ein
+        // abweichend geschriebenes Mods/ bisher uebersehen, obwohl das Spiel es
+        // laedt. FindOrCreate legt den kanonischen Pfad an wenn keiner da ist:
+        // Icarus liest ihn selbst, der Ordner ist kein Fremdkoerper.
+        return ModFolderDiscovery.FindOrCreate(game.InstallDir,
+                   "Icarus/Content/Paks/mods", "Icarus/Content/Paks/Mods")
+               ?? Path.Combine(game.InstallDir, "Icarus", "Content", "Paks", "mods");
     }
 
     /// <summary>Liefert den Workshop-Content-Root für Icarus in der Steam-
