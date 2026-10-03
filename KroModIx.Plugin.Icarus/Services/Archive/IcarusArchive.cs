@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
+using KroModIx.Plugin.Contracts;
 using NLog;
-using SharpCompress.Archives;
 
 namespace KroModIx.Plugin.Icarus.Services.Archive;
 
@@ -18,25 +17,19 @@ public enum IcarusFileKind
     Unknown,
 }
 
-/// <summary>Archiv-Grundlage für das Icarus-Plugin: erkennt Dateitypen,
-/// inspiziert Archive und packt sie sicher aus.
+/// <summary>Die <b>Icarus-spezifische</b> Seite der Archiv-Behandlung: welcher
+/// Eintrag eines Archivs welche Art von Icarus-Mod ist.
 ///
-/// <para><b>Erkennung läuft über Magic-Bytes, nicht über die Endung.</b> Das
-/// ist keine Vorsichtsmaßnahme, sondern Pflicht, weil im Downloads-Ordner
-/// Altlasten liegen: bis v1.22 hängte <c>PakInstallService.DownloadPakAsync</c>
-/// jedem Download ein <c>.pak</c> an, auch einem ZIP. Dateien wie
-/// <c>Mod 347 1.0 2026-10-01T20-47Z hash.zip.pak</c> sind also ZIPs mit
-/// PAK-Endung — nach Endung behandelt landeten sie als „PAK" im Mods-Ordner,
-/// wo Icarus sie nicht lesen kann. Still: kein Fehler, kein Log, die Mod
-/// wirkte einfach nicht.</para></summary>
-public static class IcarusArchive
+/// <para>Die Datei-Arbeit selbst — Archive öffnen, Einträge listen,
+/// zip-slip-sicher auspacken, Formate an den Magic-Bytes erkennen — macht
+/// seit v1.25.0 der Host (<see cref="IArchiveService"/> und
+/// <see cref="IUnrealPakService"/>, Contracts v1.30.0). Hier bleibt nur, was
+/// Icarus-Wissen ist: die Namen der beiden Ordner, in denen ein
+/// Icarus-Mod-Archiv seine Teile ablegt, und die Zuordnung Eintrag →
+/// Mod-Art.</para></summary>
+public sealed class IcarusArchive
 {
     private static readonly Logger Log = LogManager.GetCurrentClassLogger();
-
-    /// <summary>Endungen, die der Downloads-Ordner listet. Nur für den
-    /// Vorfilter beim Enumerieren — die echte Einordnung macht
-    /// <see cref="DetectKind"/>.</summary>
-    public static readonly string[] SupportedExtensions = [".pak", ".zip", ".rar", ".7z"];
 
     /// <summary>Der Unterordner, in dem ein Icarus-Mod-Archiv seine
     /// Datentabellen-Mods ablegt (Konvention des Icarus Mod Managers).</summary>
@@ -47,86 +40,51 @@ public static class IcarusArchive
     /// Nexus-Mods, bestätigt an OreDepot v1.0.1 / Nexus 347).</summary>
     public const string Ue4ssFolder = "UE4SS Mods";
 
-    public static bool HasSupportedExtension(string path)
-        => SupportedExtensions.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+    private readonly IArchiveService _archives;
+    private readonly IUnrealPakService _paks;
 
-    /// <summary>Die Unreal-Pak-Magic <c>0x5A6F12E1</c>, wie sie im Footer
-    /// auf der Platte steht (little-endian). Nachgesehen im echten
-    /// <c>Content/Data/data.pak</c> von Icarus und in einem gebauten
-    /// Mod-Pak — in beiden steht sie in den letzten Bytes.</summary>
-    private static readonly byte[] PakFooterMagic = [0xE1, 0x12, 0x6F, 0x5A];
+    public IcarusArchive(IArchiveService archives, IUnrealPakService paks)
+    {
+        _archives = archives;
+        _paks = paks;
+    }
 
-    /// <summary>Wie viele Bytes am Dateiende nach der Pak-Magic durchsucht
-    /// werden. Die genaue Position hängt von der Pak-Version ab (Icarus
-    /// liefert v11), deshalb ein Fenster statt eines festen Offsets.
-    /// 1 KiB deckt jede bekannte Footer-Variante ab.</summary>
-    private const int PakFooterWindow = 1024;
+    /// <summary>Endungen, die der Downloads-Ordner listet — die
+    /// Archiv-Endungen des Hosts plus <c>.pak</c>. Nur ein Vorfilter beim
+    /// Enumerieren; die verbindliche Einordnung macht
+    /// <see cref="DetectKind"/>.</summary>
+    public bool HasSupportedExtension(string path)
+        => path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)
+           || _archives.HasSupportedExtension(path);
 
-    /// <summary>Entscheidet anhand des Inhalts, was die Datei ist.
+    /// <summary>Entscheidet anhand des <b>Inhalts</b>, was die Datei ist.
     ///
-    /// <para><b>Reihenfolge der Prüfungen ist wichtig.</b> Die Pak-Magik im
-    /// Footer kommt zuerst, weil sie ein echter Beleg ist. Erst danach die
-    /// drei Archiv-Signaturen am Dateianfang. Umgekehrt wäre es angreifbar:
-    /// ein PAK beginnt mit den Daten seiner ersten Datei, und die können
-    /// zufällig mit <c>PK</c> anfangen — dann wäre ein funktionierendes
-    /// Mod-PAK als „ZIP" eingeordnet und der Installer hätte versucht, es
+    /// <para><b>Die Reihenfolge ist wichtig.</b> Erst die Pak-Prüfung des
+    /// Hosts (Footer-Magic), dann die Archiv-Prüfung (Signatur am
+    /// Dateianfang). Umgekehrt wäre es angreifbar: ein PAK beginnt mit den
+    /// Daten seiner ersten Datei, und die können zufällig mit <c>PK</c>
+    /// anfangen — dann wäre ein funktionierendes Mod-PAK als „ZIP"
+    /// eingeordnet und der Installer hätte versucht, es
     /// auszupacken.</para>
     ///
-    /// <para>Was weder Footer-Magik noch Archiv-Signatur hat, aber auf
-    /// <c>.pak</c> endet, gilt als PAK — etwa ein abgebrochener Download,
-    /// den der Installer dann sauber ablehnt.</para></summary>
-    public static IcarusFileKind DetectKind(string path)
+    /// <para>Was weder Pak noch Archiv ist, aber auf <c>.pak</c> endet, gilt
+    /// als PAK — etwa ein abgebrochener Download, den der Installer dann
+    /// sauber ablehnt.</para></summary>
+    public IcarusFileKind DetectKind(string path)
     {
-        try
-        {
-            if (!File.Exists(path)) return IcarusFileKind.Unknown;
-            var byExtension = path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)
-                ? IcarusFileKind.Pak : IcarusFileKind.Unknown;
-
-            using var fs = File.OpenRead(path);
-            if (fs.Length < 4) return byExtension;
-
-            // 1) Unreal-Pak-Footer — der belastbare Beleg.
-            var tailLength = (int)Math.Min(PakFooterWindow, fs.Length);
-            var tail = new byte[tailLength];
-            fs.Seek(-tailLength, SeekOrigin.End);
-            fs.ReadExactly(tail, 0, tailLength);
-            if (tail.AsSpan().IndexOf(PakFooterMagic) >= 0) return IcarusFileKind.Pak;
-
-            // 2) Archiv-Signaturen am Dateianfang.
-            fs.Seek(0, SeekOrigin.Begin);
-            Span<byte> head = stackalloc byte[6];
-            var read = fs.Read(head);
-            if (read >= 2 && head[0] == 0x50 && head[1] == 0x4B)
-                return IcarusFileKind.Archive;                       // "PK" — ZIP
-            if (read >= 4 && head[0] == 0x52 && head[1] == 0x61
-                && head[2] == 0x72 && head[3] == 0x21)
-                return IcarusFileKind.Archive;                       // "Rar!"
-            if (read >= 4 && head[0] == 0x37 && head[1] == 0x7A
-                && head[2] == 0xBC && head[3] == 0xAF)
-                return IcarusFileKind.Archive;                       // "7z" BC AF
-
-            return byExtension;
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "Dateityp nicht bestimmbar: {Path}", path);
-            return IcarusFileKind.Unknown;
-        }
+        if (_paks.IsPakFile(path)) return IcarusFileKind.Pak;
+        if (_archives.DetectKind(path) != ArchiveKind.Unknown) return IcarusFileKind.Archive;
+        return path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)
+            ? IcarusFileKind.Pak : IcarusFileKind.Unknown;
     }
 
     /// <summary>Schaut in ein Archiv, ohne etwas auszupacken, und ordnet die
     /// Einträge den drei Icarus-Mod-Arten zu.</summary>
-    public static IcarusArchiveContents Inspect(string archivePath)
+    public IcarusArchiveContents Inspect(string archivePath)
     {
         try
         {
-            using var archive = ArchiveFactory.Open(archivePath);
-            var keys = archive.Entries
-                .Where(e => !e.IsDirectory && !string.IsNullOrEmpty(e.Key))
-                .Select(e => e.Key!.Replace('\\', '/'))
-                .ToList();
-            return Classify(keys);
+            return Classify(_archives.List(archivePath).Select(e => e.Path).ToList());
         }
         catch (Exception ex)
         {
@@ -144,8 +102,9 @@ public static class IcarusArchive
         var luaFolders = new List<string>();
         var seenLua = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var key in entryKeys)
+        foreach (var raw in entryKeys)
         {
+            var key = raw.Replace('\\', '/');
             if (key.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
             {
                 paks.Add(key);
@@ -179,54 +138,6 @@ public static class IcarusArchive
         var slash = rest.IndexOf('/');
         if (slash <= 0) return null;
         return rest[..slash];
-    }
-
-    /// <summary>Zip-Slip-Schutz: löst einen archiv-relativen Pfad gegen
-    /// <paramref name="root"/> auf und nimmt ihn nur an, wenn das Ergebnis
-    /// wirklich unterhalb von root landet. Ein <c>Contains("..")</c>-Test
-    /// reicht nicht — absolute Schlüssel (<c>/etc/…</c>, <c>C:\…</c>)
-    /// rutschen daran vorbei. Portiert aus <c>DspZipInstaller</c>.
-    ///
-    /// <para><b>Laufwerksbuchstaben werden ausdrücklich abgelehnt</b>, nicht
-    /// nur über <see cref="Path.IsPathRooted(string)"/>. Der Grund ist eine
-    /// Plattform-Asymmetrie, die beim Testen aufgefallen ist: auf Windows
-    /// gilt <c>C:\windows\evil.dll</c> als absolut und fliegt raus, auf Linux
-    /// nicht — dort wird daraus der relative Pfad <c>C:/windows/evil.dll</c>,
-    /// der brav unterhalb von root landet. Ausgebrochen wäre also nichts, der
-    /// Eintrag hätte aber einen Ordner namens <c>C:</c> im Mods-Verzeichnis
-    /// angelegt. Ein Archiv mit Laufwerksbuchstaben im Schlüssel ist ohnehin
-    /// kaputt oder böswillig; beide Plattformen sollen es gleich
-    /// behandeln.</para></summary>
-    public static bool TryResolveSafe(string root, string relative, out string destination)
-    {
-        destination = "";
-        if (string.IsNullOrWhiteSpace(relative)) return false;
-        if (HasDriveLetter(relative)) return false;
-        var rel = relative.Replace('\\', Path.DirectorySeparatorChar)
-                          .Replace('/', Path.DirectorySeparatorChar);
-        if (Path.IsPathRooted(rel)) return false;
-        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)
-                       + Path.DirectorySeparatorChar;
-        string full;
-        try { full = Path.GetFullPath(Path.Combine(rootFull, rel)); }
-        catch { return false; }
-        if (!full.StartsWith(rootFull, StringComparison.Ordinal)) return false;
-        destination = full;
-        return true;
-    }
-
-    /// <summary><c>C:\…</c> oder <c>C:/…</c> am Anfang — unabhängig davon,
-    /// was die laufende Plattform für absolut hält.</summary>
-    private static bool HasDriveLetter(string path)
-        => path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':'
-           && (path[2] == '\\' || path[2] == '/');
-
-    public static void ExtractOne(IArchiveEntry entry, string destination)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        using var input = entry.OpenEntryStream();
-        using var output = File.Create(destination);
-        input.CopyTo(output);
     }
 }
 

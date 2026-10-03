@@ -26,6 +26,10 @@ public sealed partial class InstalledPaksViewModel
 {
     private Ue4ssLuaModService? Lua => _installer.Lua;
 
+    /// <summary>Die DLL, über die sich UE4SS 3.x einhängt. Proton bringt
+    /// dieselbe mit und bevorzugt sie — daher die Umleitung.</summary>
+    private const string Ue4ssProxyDll = "dwmapi";
+
     // ---- Zustand ----
 
     [ObservableProperty]
@@ -94,7 +98,7 @@ public sealed partial class InstalledPaksViewModel
                 ? ""
                 : Strings.T("ue4ss.proton_no_prefix");
         }
-        else if (ProtonDllOverride.IsSet(prefix))
+        else if (_host.WinePrefix.IsDllOverrideSet(prefix, Ue4ssProxyDll))
         {
             NeedsProtonFix = false;
             Ue4ssProtonText = Strings.T("ue4ss.proton_ok");
@@ -127,7 +131,7 @@ public sealed partial class InstalledPaksViewModel
         {
             using var scope = _host.BeginProgress(Strings.T("ue4ss.installing"));
             using var http = _host.CreateHttpClient("ue4ss");
-            var bootstrapper = new Ue4ssBootstrapper(http);
+            var bootstrapper = new Ue4ssBootstrapper(http, _host.Archives);
             var progress = new Progress<double>(f => scope.Report(f, Strings.T("ue4ss.installing")));
             var result = await bootstrapper.InstallAsync(paths, progress);
 
@@ -161,7 +165,7 @@ public sealed partial class InstalledPaksViewModel
     private void TrySetProtonOverride(bool announceWhenAlreadySet)
     {
         var prefix = _game?.ProtonPrefix;
-        switch (ProtonDllOverride.Ensure(prefix))
+        switch (_host.WinePrefix.EnsureDllOverride(prefix, Ue4ssProxyDll))
         {
             case DllOverrideResult.Added:
                 _host.Notifications.Notify(Strings.T("ue4ss.proton_added"), NotificationLevel.Success);

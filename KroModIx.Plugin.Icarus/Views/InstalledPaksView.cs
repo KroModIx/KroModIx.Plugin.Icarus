@@ -742,7 +742,7 @@ public sealed class InstalledPaksView : UserControl
         foreach (var f in files)
         {
             var local = f.Path.LocalPath;
-            if (!Services.Archive.IcarusArchive.HasSupportedExtension(local)) continue;
+            if (!HasModExtension(local)) continue;
             try { vm.InstallDroppedPak(local); count++; }
             catch { /* Notify läuft im VM */ }
         }
@@ -757,12 +757,23 @@ public sealed class InstalledPaksView : UserControl
     {
         var files = e.DataTransfer.TryGetFiles();
         if (files is null) return false;
-        return files.Any(f => Services.Archive.IcarusArchive.HasSupportedExtension(f.Path.LocalPath));
+        return files.Any(f => HasModExtension(f.Path.LocalPath));
     }
 
     /// <summary>Emoji nach Mod-Quelle. Eingabe ist
     /// [IsWorkshop, IsLua, IsExmodz]; was nichts davon ist, ist ein
     /// manuelles PAK.</summary>
+    /// <summary>Endungs-Vorfilter fuer Drag&amp;Drop. Bewusst eine eigene
+    /// kleine Liste und nicht der Archiv-Baukasten des Hosts: die View hat
+    /// keinen Zugriff auf IHostServices, und beim Ziehen geht es nur darum,
+    /// ob der Zeiger ueberhaupt etwas Plausibles haelt. Die verbindliche
+    /// Einordnung macht danach der Installer am Inhalt.</summary>
+    private static bool HasModExtension(string path)
+        => path.EndsWith(".pak", System.StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".zip", System.StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".rar", System.StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".7z", System.StringComparison.OrdinalIgnoreCase);
+
     private sealed class SourceEmojiConverter : Avalonia.Data.Converters.IMultiValueConverter
     {
         public object? Convert(System.Collections.Generic.IList<object?> values,

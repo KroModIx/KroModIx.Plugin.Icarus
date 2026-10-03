@@ -11,6 +11,44 @@
 
 ## Aktueller Stand
 
+**v1.25.0 — drei Baukästen in den Host gewandert:** Archiv-Behandlung,
+Unreal-Pak-Leser/-Schreiber und die Proton-DLL-Umleitung liegen jetzt im
+Host und kommen über `IHostServices.Archives`, `.UnrealPaks` und
+`.WinePrefix` (Contracts v1.30.0). `minHostVersion` steht auf **1.30.0**.
+
+- **`Services/Pak/` ist weg**, ebenso `Services/Ue4ss/ProtonDllOverride.cs`.
+- **`IcarusArchive` ist jetzt eine Instanz** (nicht mehr statisch) und hält
+  die beiden Host-Dienste. Darin bleibt nur Icarus-Wissen: die Namen der
+  zwei Ordner (`Icarus Mod Manager`, `UE4SS Mods`) und die Zuordnung
+  Eintrag → Mod-Art. `DetectKind` entscheidet weiter die Reihenfolge (Pak
+  vor Archiv), ruft dafür aber `IUnrealPakService.IsPakFile` und
+  `IArchiveService.DetectKind`.
+- **Die Icarus-Konstanten liegen im Compiler**: `IcarusContentMountPoint`
+  und `IcarusDataTablePrefix` stehen in `ExmodzCompiler` — der Host-Baukasten
+  nimmt den Mount-Point vom Aufrufer, damit er für Satisfactory genauso
+  taugt.
+- **Kein SharpCompress mehr im Plugin.** `CopyLocalLockFileAssemblies` bleibt
+  trotzdem an, damit eine künftige Abhängigkeit ohne weiteren Eingriff im
+  Bundle landet.
+- **Die Plugin-Tests nutzen Attrappen** (`FakeHostServices.cs`:
+  `FakeUnrealPakService`, `FakeArchiveService`). Das ist nicht nur eine
+  technische Grenze — das Testprojekt referenziert nur die Contracts —,
+  sondern die richtige: das Plugin verantwortet, **welche** Tabelle gepatcht
+  und **wohin** ein Eintrag sortiert wird. Ob der Container danach
+  byte-korrekt auf der Platte liegt, prüft der Host
+  (`HostUnrealPakServiceTests`, `RealUnrealPakTests`). Die Zip-Slip- und
+  Pak-Format-Tests sind mit dem Code dorthin gewandert; 89 Tests bleiben
+  hier, die Host-Suite stieg auf 258.
+
+**Gegenprobe nach der Migration** (03.10.2026): dieselbe Messung wie vor der
+Umstellung, über die neue API gefahren — 299 von 299 Einträgen der echten
+`data.pak` gelesen, derselbe Zusammenbau von OreDepot ergibt dieselben 10
+Pfade mit 2 byte-identischen Assets und 8 inhaltsgleichen Tabellen gegenüber
+dem Ergebnis der Referenz-Implementierung. Die Umstellung ist
+verhaltensgleich.
+
+---
+
 **v1.24.0 — Datentabellen-Mods (.EXMODZ):** damit sind alle vier
 Icarus-Mod-Arten abgedeckt (PAK, Workshop, UE4SS-Lua, Datentabellen).
 
@@ -18,6 +56,8 @@ Icarus-Mod-Arten abgedeckt (PAK, Workshop, UE4SS-Lua, Datentabellen).
   **go-unrealpak** (MIT, Donovan C. Young). Leser: gespeichert + Zlib,
   dreiteiliger Index, SHA1-Kette durchgesetzt. Schreiber: Pak v11,
   unkomprimiert, reproduzierbare Ausgabe.
+  → **in v1.25.0 in den Host gewandert** (`IHostServices.UnrealPaks`); der
+  Code liegt jetzt unter `KroModIx/Services/Pak/` im Host-Repo.
 - **`Services/Exmodz/`** — Manifest- und Archiv-Parser, Zeilen-Upsert auf die
   Datentabellen, Merge, Ablage mit Staleness-Pruefung, Dienst-Fassade.
   Portiert aus **lmms `internal/source/icarus`** (MIT, derselbe Autor).
@@ -136,17 +176,6 @@ den Host. v0.2 Bug-Fix `~mods` → `mods`.
 
 ## Roadmap
 
-- **Host-Kandidat: DLL-Umleitung nach `IHostServices`.** `ProtonDllOverride`
-  liegt bewusst in einer eigenen, abhaengigkeitsfreien Klasse. Jedes Plugin
-  fuer ein Unreal-Spiel mit UE4SS braucht genau diese Funktion (Satisfactory,
-  Schedule I) — nach Kernprinzip 4 gehoert sie in den Host, als etwa
-  `IHostServices.ProtonPrefix.SetDllOverride(...)`. Dann wird die Wanderung
-  ein Verschieben und kein Neuschreiben.
-- **Host-Kandidat: `Services/Pak`.** Der Unreal-Pak-Leser/-Schreiber ist
-  game-agnostisch (die Icarus-Konstanten liegen getrennt in
-  `UnrealPakFormat`). Satisfactory und jedes weitere UE-Spiel braeuchte ihn
-  identisch. Erst beim zweiten Verbraucher verschieben — jetzt waere es
-  Spekulation.
 - **Ladereihenfolge der Datentabellen-Mods aendern.** Der Store haelt sie
   schon als geordnete Liste, und bei einem Feld-Konflikt gewinnt die untere.
   Es fehlt nur die Bedienung (Hoch/Runter in der Row).
@@ -183,6 +212,12 @@ den Host. v0.2 Bug-Fix `~mods` → `mods`.
   v11, zlib, ~2,5 MB). Ein `_P.pak` in `Content/Paks/mods` mit Pfaden unter
   `Icarus/Content/data/` ueberschreibt sie — das ist der Weg, den ein
   `.EXMODZ`-Einbau gehen muss.
+- **Host-API statt eigener Kopie** (ab v1.25.0): Archive, Unreal-Paks und
+  Proton-Praefixe kommen aus `IHostServices`. Bei einem neuen Bedarf dieser
+  Art zuerst pruefen, ob der Host ihn schon hat — und wenn nicht, ob er
+  dorthin gehoert (Kernprinzip 4). Die Entscheidung bei diesen drei fiel
+  nachgemessen: sechs Plugins oeffnen Archive, drei trugen eine eigene Kopie
+  desselben Ausbruch-Schutzes.
 - **Lizenzlage der Referenz-Implementierungen**: `lmm`
   (DonovanMods/linux-mod-manager) und `go-unrealpak` sind MIT, also
   portierbar mit Attribution. **IcarusStarlink hat keine LICENSE-Datei** —

@@ -1,16 +1,10 @@
 <Project>
   <ItemGroup>
-    <!-- v1.21.0: Rich-HTML-Renderer via _host.Descriptions.CreateRichView
-         (HtmlPanel im Detail-Dialog). BBCode wird zu HTML aufgeloest,
-         Bold/Farben/Bilder/Listen inline sichtbar. -->
-    <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.29.0" />
+    <!-- v1.30.0: IArchiveService, IUnrealPakService und IWinePrefixService —
+         Archiv-, Pak- und Wine-Praefix-Arbeit liegt jetzt im Host. -->
+    <PackageVersion Include="KroModIx.Plugin.Contracts" Version="1.30.0" />
     <PackageVersion Include="Avalonia" Version="12.1.0" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <!-- v1.23.0: ZIP/RAR/7z im Downloads-Tab. Nexus liefert Icarus-Mods als
-         Archiv (EXMODZ + UE4SS-Lua in einem Paket), nicht als nacktes PAK.
-         1.0.0 ist Pflicht: 0.42 hat GHSA-6c8g-7p36-r338 und bricht den
-         Build wegen TreatWarningsAsErrors. -->
-    <PackageVersion Include="SharpCompress" Version="1.0.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
 
     <!-- Tests (v1.23.0): Fixture-Projekt fuer NexusFileNameParser und

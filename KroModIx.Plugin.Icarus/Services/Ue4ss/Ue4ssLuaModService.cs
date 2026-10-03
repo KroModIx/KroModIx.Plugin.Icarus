@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using KroModIx.Plugin.Contracts;
 using NLog;
-using SharpCompress.Archives;
 using KroModIx.Plugin.Icarus.Services.Archive;
 
 namespace KroModIx.Plugin.Icarus.Services.Ue4ss;
@@ -56,8 +56,13 @@ public sealed class Ue4ssLuaModService
     };
 
     private readonly Ue4ssPaths _paths;
+    private readonly IArchiveService _archives;
 
-    public Ue4ssLuaModService(Ue4ssPaths paths) => _paths = paths;
+    public Ue4ssLuaModService(Ue4ssPaths paths, IArchiveService archives)
+    {
+        _paths = paths;
+        _archives = archives;
+    }
 
     public Ue4ssPaths Paths => _paths;
 
@@ -108,7 +113,12 @@ public sealed class Ue4ssLuaModService
 
     /// <summary>Installiert alle UE4SS-Lua-Mods aus einem Archiv, also jeden
     /// Ordner unterhalb von <c>UE4SS Mods/</c>. Gibt die Namen der
-    /// installierten Mods zurück.</summary>
+    /// installierten Mods zurück.
+    ///
+    /// <para>Das Auspacken macht der Host-Baukasten: er schneidet den
+    /// <c>UE4SS Mods/</c>-Teil ab (damit der Mod-Ordner samt
+    /// <c>Scripts/</c> und <c>enabled.txt</c> direkt im Ziel landet) und
+    /// prüft jeden Zielpfad gegen das Zielverzeichnis.</para></summary>
     public IReadOnlyList<string> InstallFromArchive(string archivePath, bool overwrite = true)
     {
         var modsDir = _paths.FindOrCreateModsDir();
@@ -117,38 +127,22 @@ public sealed class Ue4ssLuaModService
                 "UE4SS-Mods-Ordner konnte nicht angelegt werden — Binaries/Win64 nicht gefunden " +
                 "oder nicht beschreibbar.");
 
-        using var archive = ArchiveFactory.Open(archivePath);
-        var entries = archive.Entries
-            .Where(e => !e.IsDirectory && !string.IsNullOrEmpty(e.Key))
-            .ToList();
+        var names = IcarusArchive.Classify(
+            _archives.List(archivePath).Select(e => e.Path).ToList()).Ue4ssModNames;
+        if (names.Count == 0) return [];
 
-        var installed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var prefix = IcarusArchive.Ue4ssFolder + "/";
+        var result = _archives.Extract(archivePath, modsDir, new ArchiveExtractOptions(
+            StripPrefix: IcarusArchive.Ue4ssFolder,
+            // Nur Eintraege, die unter einem Mod-Ordner liegen — eine lose
+            // Datei direkt in "UE4SS Mods/" ist keine Mod.
+            Filter: key => IcarusArchive.TryGetUe4ssModName(key) is not null,
+            Overwrite: overwrite));
 
-        foreach (var entry in entries)
-        {
-            var key = entry.Key!.Replace('\\', '/');
-            var modName = IcarusArchive.TryGetUe4ssModName(key);
-            if (modName is null) continue;
-
-            // Pfad relativ zum "UE4SS Mods/"-Prefix — der Mod-Ordner samt
-            // Unterstruktur bleibt erhalten (Scripts/, enabled.txt, …).
-            var rel = key[prefix.Length..];
-            if (!IcarusArchive.TryResolveSafe(modsDir, rel, out var dst))
-            {
-                Log.Warn("Zip-Slip im UE4SS-Eintrag uebersprungen: {Key}", key);
-                continue;
-            }
-            if (File.Exists(dst) && !overwrite)
-                throw new IOException($"Lua-Mod ist bereits installiert: {modName}");
-
-            IcarusArchive.ExtractOne(entry, dst);
-            installed.Add(modName);
-        }
-
-        foreach (var name in installed)
+        foreach (var skipped in result.SkippedUnsafe)
+            Log.Warn("Eintrag aus Sicherheitsgruenden uebersprungen: {Key}", skipped);
+        foreach (var name in names)
             Log.Info("UE4SS-Lua-Mod installiert: {Name} → {Dir}", name, Path.Combine(modsDir, name));
-        return installed.ToList();
+        return names;
     }
 
     /// <summary>Schaltet eine Lua-Mod ein oder aus. Rückgabe ist der neue

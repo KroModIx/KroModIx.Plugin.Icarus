@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using KroModIx.Plugin.Contracts;
 using NLog;
-using KroModIx.Plugin.Icarus.Services.Pak;
 
 namespace KroModIx.Plugin.Icarus.Services.Exmodz;
 
@@ -54,6 +54,35 @@ public sealed class ExmodzCompiler
 {
     private static readonly Logger Log = LogManager.GetCurrentClassLogger();
 
+    /// <summary>Der Mount-Point, den ein gebautes <c>_P.pak</c> deklarieren
+    /// muss, damit Icarus' Datentabellen-Lader es findet.
+    ///
+    /// <para><c>../../../</c> führt vom Verzeichnis der Spiel-Exe zum äußeren
+    /// Spielordner; von dort steigen echte Icarus-Mods mit einem wörtlichen
+    /// <c>Icarus/Content/</c> wieder ab — der UProject-Ordner heißt selbst
+    /// „Icarus". Belegt sowohl durch die Mount-Strings echter Mod-Paks als
+    /// auch durch die Verschachtelung der <c>data.pak</c> selbst
+    /// (<c>…/Icarus/Icarus/Content/Data/data.pak</c>).</para>
+    ///
+    /// <para><b>Steht hier und nicht im Host</b>, weil es Icarus-Wissen ist:
+    /// der Host-Baukasten nimmt den Mount-Point vom Aufrufer, damit er für
+    /// Satisfactory genauso taugt.</para></summary>
+    public const string IcarusContentMountPoint = "../../../Icarus/Content/";
+
+    /// <summary>Wird dem mount-relativen Pfad einer gepatchten Basistabelle
+    /// vorangestellt, bevor sie ins gebaute Pak wandert. Echte Mods legen
+    /// ihre Tabellen-Überschreibungen unter
+    /// <c>Icarus/Content/data/&lt;derselbe Pfad&gt;</c> ab.
+    ///
+    /// <para><b>Nicht</b> auf mitgelieferte Assets anwenden: die sind
+    /// Content-Pakete, keine Tabellen-Überschreibungen. Ein Pak kann beide
+    /// Klassen nicht mit demselben Präfix adressieren.</para></summary>
+    public const string IcarusDataTablePrefix = "data/";
+
+    private readonly IUnrealPakService _paks;
+
+    public ExmodzCompiler(IUnrealPakService paks) => _paks = paks;
+
     /// <summary>Baut das gemeinsame Pak und schreibt es nach
     /// <paramref name="outputPakPath"/>.
     ///
@@ -81,8 +110,8 @@ public sealed class ExmodzCompiler
         var assets = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var assetOwner = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        using var basePak = UnrealPakReader.Open(basePakPath);
-        var basePaths = basePak.Files().Select(f => f.Path).ToList();
+        using var basePak = _paks.OpenRead(basePakPath);
+        var basePaths = basePak.Entries.Select(e => e.Path).ToList();
 
         foreach (var src in sources)
         {
@@ -106,18 +135,18 @@ public sealed class ExmodzCompiler
                 warnings, failed, 0, 0);
         }
 
-        var writer = new UnrealPakWriter(UnrealPakFormat.IcarusContentMountPoint);
+        var builder = _paks.CreateBuilder(IcarusContentMountPoint);
         foreach (var (mountPath, data) in tables)
-            writer.AddFile(UnrealPakFormat.IcarusDataTablePrefix + mountPath, data);
+            builder.Add(IcarusDataTablePrefix + mountPath, data);
         foreach (var (assetPath, data) in assets)
         {
             // Kein data/-Praefix: mitgelieferte Assets sind Content-Pakete,
             // keine Tabellen-Ueberschreibungen. Sie brauchen nur den
             // Mount-Point, um unter Icarus/Content/ an ihrem eigenen
             // Namensraum-Pfad zu landen.
-            writer.AddFile(assetPath, data);
+            builder.Add(assetPath, data);
         }
-        writer.Write(outputPakPath);
+        builder.Write(outputPakPath);
 
         var msg = $"{tables.Count} Datentabelle(n)"
                   + (assets.Count > 0 ? $" und {assets.Count} Asset(s)" : "")
@@ -126,7 +155,7 @@ public sealed class ExmodzCompiler
         return new MergeResult(true, msg, warnings, failed, tables.Count, assets.Count);
     }
 
-    private static void ApplyOne(UnrealPakReader basePak, List<string> basePaths, ExmodzSource src,
+    private static void ApplyOne(IUnrealPakReader basePak, List<string> basePaths, ExmodzSource src,
         Dictionary<string, byte[]> tables, Dictionary<string, byte[]> assets,
         Dictionary<string, string> assetOwner, List<string> warnings)
     {
@@ -145,7 +174,7 @@ public sealed class ExmodzCompiler
             // Basis fuer die naechste Mod. Nur beim ersten Zugriff kommt die
             // unberuehrte Tabelle aus dem Pak.
             if (!tables.TryGetValue(mountPath, out var current))
-                current = basePak.ReadFile(mountPath);
+                current = basePak.Read(mountPath);
             tables[mountPath] = DataTablePatcher.ApplyRowPatch(current, row);
         }
 

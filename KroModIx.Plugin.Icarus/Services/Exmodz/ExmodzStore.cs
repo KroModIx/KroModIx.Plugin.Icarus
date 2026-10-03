@@ -4,8 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using KroModIx.Plugin.Contracts;
 using NLog;
-using KroModIx.Plugin.Icarus.Services.Pak;
 
 namespace KroModIx.Plugin.Icarus.Services.Exmodz;
 
@@ -79,11 +79,13 @@ public sealed class ExmodzStore
 
     private readonly string _dir;
     private readonly string _statePath;
+    private readonly IUnrealPakService _paks;
 
-    public ExmodzStore(IcarusPaths paths)
+    public ExmodzStore(IcarusPaths paths, IUnrealPakService paksService)
     {
         _dir = Path.Combine(paths.PluginDataDir, "exmodz");
         _statePath = Path.Combine(_dir, "state.json");
+        _paks = paksService;
         Directory.CreateDirectory(_dir);
     }
 
@@ -233,7 +235,7 @@ public sealed class ExmodzStore
         if (!state.Merged.ModIds.SequenceEqual(activeIds, StringComparer.Ordinal))
             return Staleness.ModsChanged;
 
-        var baseHash = TryReadBaseIndexHash(basePakPath);
+        var baseHash = TryReadBaseIndexHash(_paks, basePakPath);
         // Lässt sich der Hash nicht lesen (Spiel gerade weg, Platte nicht
         // eingehängt), ist das kein Grund, einen Neubau zu behaupten — dann
         // wäre jede Anzeige ohne Spiel dauerhaft rot.
@@ -243,12 +245,12 @@ public sealed class ExmodzStore
 
     /// <summary>Der Index-Hash der Basis-<c>data.pak</c>, oder null wenn sie
     /// nicht lesbar ist.</summary>
-    public static string? TryReadBaseIndexHash(string basePakPath)
+    public static string? TryReadBaseIndexHash(IUnrealPakService paks, string basePakPath)
     {
         try
         {
             if (!File.Exists(basePakPath)) return null;
-            using var r = UnrealPakReader.Open(basePakPath);
+            using var r = paks.OpenRead(basePakPath);
             return r.IndexHash;
         }
         catch (Exception ex)

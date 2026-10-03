@@ -90,115 +90,135 @@ public class IcarusArchiveClassifyTests
     }
 }
 
+/// <summary>Die Typ-Erkennung ist der Reihenfolge wegen interessant: erst
+/// Pak, dann Archiv. Die Byte-Arbeit selbst machen seit v1.25.0 die
+/// Host-Baukästen, hier über Attrappen — geprüft wird die
+/// Entscheidungslogik des Plugins, nicht ob eine Signatur stimmt. Dafür gibt
+/// es im Host <c>HostArchiveServiceTests</c> und
+/// <c>HostUnrealPakServiceTests</c>.</summary>
 public class IcarusArchiveDetectKindTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("icarus-detect").FullName;
+    private readonly FakeUnrealPakService _paks = new();
+    private readonly FakeArchiveService _archives = new();
+    private readonly IcarusArchive _sut;
+
+    public IcarusArchiveDetectKindTests() => _sut = new IcarusArchive(_archives, _paks);
 
     public void Dispose()
     {
         try { Directory.Delete(_dir, recursive: true); } catch { /* Aufräumen darf scheitern */ }
     }
 
-    private string Write(string name, byte[] content)
+    private string MakeZip(string name)
     {
-        var p = Path.Combine(_dir, name);
-        File.WriteAllBytes(p, content);
-        return p;
+        var path = Path.Combine(_dir, name);
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+        zip.CreateEntry("UE4SS Mods/X/enabled.txt");
+        return path;
+    }
+
+    private string MakePak(string name)
+    {
+        var path = Path.Combine(_dir, name);
+        var b = _paks.CreateBuilder();
+        b.Add("Items/D_ItemsStatic.json", System.Text.Encoding.UTF8.GetBytes("{\"Rows\":[]}"));
+        b.Write(path);
+        return path;
     }
 
     [Fact]
-    public void EchtesZip_IstArchiv()
-    {
-        var path = Path.Combine(_dir, "mod.zip");
-        using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
-            zip.CreateEntry("UE4SS Mods/X/enabled.txt");
-        IcarusArchive.DetectKind(path).Should().Be(IcarusFileKind.Archive);
-    }
+    public void EchtesZipIstArchiv()
+        => _sut.DetectKind(MakeZip("mod.zip")).Should().Be(IcarusFileKind.Archive);
 
-    /// <summary>Der eigentliche Grund für die Magic-Byte-Erkennung: bis v1.22
-    /// hängte <c>DownloadPakAsync</c> jedem Download ein <c>.pak</c> an. Nach
-    /// der Endung behandelt wäre das hier ein PAK und würde unverändert in
-    /// den Mods-Ordner kopiert, wo Icarus es nicht lesen kann — still, ohne
+    /// <summary>Der eigentliche Grund für die Inhaltsprüfung: bis v1.22
+    /// hängte der Downloader jedem Download ein <c>.pak</c> an. Nach der
+    /// Endung behandelt wäre das hier ein PAK und würde unverändert in den
+    /// Mods-Ordner kopiert, wo Icarus es nicht lesen kann — still, ohne
     /// Fehlermeldung.</summary>
     [Fact]
-    public void ZipMitPakEndung_IstTrotzdemArchiv()
-    {
-        var tmp = Path.Combine(_dir, "tmp.zip");
-        using (var zip = ZipFile.Open(tmp, ZipArchiveMode.Create))
-            zip.CreateEntry("egal.txt");
-        var bytes = File.ReadAllBytes(tmp);
-        var path = Write("Mod 347 1.0 2026-10-01T20-47Z hash.zip.pak", bytes);
-        IcarusArchive.DetectKind(path).Should().Be(IcarusFileKind.Archive);
-    }
-
-    [Fact]
-    public void RarSignatur_IstArchiv()
-        => IcarusArchive.DetectKind(Write("mod.rar",
-            [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]))
+    public void ZipMitPakEndungIstTrotzdemArchiv()
+        => _sut.DetectKind(MakeZip("Mod 347 1.0 2026-10-01T20-47Z hash.zip.pak"))
             .Should().Be(IcarusFileKind.Archive);
 
     [Fact]
-    public void SevenZipSignatur_IstArchiv()
-        => IcarusArchive.DetectKind(Write("mod.7z",
-            [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00]))
-            .Should().Be(IcarusFileKind.Archive);
+    public void EchtesPakIstPak()
+        => _sut.DetectKind(MakePak("Mod_P.pak")).Should().Be(IcarusFileKind.Pak);
 
-    /// <summary>Ein echtes Unreal-PAK hat seine Magic (0x5A6F12E1) im Footer,
-    /// dessen Position von der Pak-Version abhängt. Deshalb ist PAK der
-    /// Ausweichfall: keine der drei Archiv-Signaturen, aber auf .pak endend.</summary>
+    /// <summary>Die Pak-Prüfung läuft <b>vor</b> der Archiv-Prüfung. Sonst
+    /// wäre ein Pak, dessen erste Bytes zufällig wie ein ZIP aussehen, als
+    /// Archiv eingeordnet und der Installer hätte versucht, es
+    /// auszupacken.</summary>
     [Fact]
-    public void PakOhneArchivSignatur_IstPak()
-        => IcarusArchive.DetectKind(Write("Mod_P.pak",
-            [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]))
-            .Should().Be(IcarusFileKind.Pak);
-
-    [Fact]
-    public void FremdeDatei_IstUnbekannt()
-        => IcarusArchive.DetectKind(Write("notizen.txt",
-            [0x48, 0x61, 0x6C, 0x6C, 0x6F, 0x21, 0x0A]))
-            .Should().Be(IcarusFileKind.Unknown);
-
-    [Fact]
-    public void FehlendeDatei_IstUnbekannt()
-        => IcarusArchive.DetectKind(Path.Combine(_dir, "gibtsnicht.zip"))
-            .Should().Be(IcarusFileKind.Unknown);
-
-    /// <summary>Eine zu kurze Datei darf nicht crashen. Endet sie auf .pak,
-    /// gilt sie als PAK — ein abgebrochener Download, den der Installer
-    /// später sauber ablehnt.</summary>
-    [Fact]
-    public void ZuKurzeDatei_FaelltAufEndungZurueck()
+    public void PakGewinntGegenEineZipSignatur()
     {
-        IcarusArchive.DetectKind(Write("kurz.pak", [0x00, 0x01])).Should().Be(IcarusFileKind.Pak);
-        IcarusArchive.DetectKind(Write("kurz.txt", [0x00, 0x01])).Should().Be(IcarusFileKind.Unknown);
-    }
-}
-
-public class IcarusArchiveZipSlipTests
-{
-    [Theory]
-    [InlineData("../../etc/passwd")]
-    [InlineData(@"..\..\windows\system32\evil.dll")]
-    [InlineData("/etc/passwd")]
-    [InlineData(@"C:\windows\evil.dll")]
-    [InlineData("harmlos/../../../raus.txt")]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void AusbruchsversuchWirdAbgelehnt(string relative)
-    {
-        var root = Path.Combine(Path.GetTempPath(), "icarus-zipslip-root");
-        IcarusArchive.TryResolveSafe(root, relative, out var dst).Should().BeFalse();
-        dst.Should().BeEmpty();
+        var path = Path.Combine(_dir, "zwitter.pak");
+        // Die Attrappe erkennt ihr Pak an der Kennung am Dateianfang; fuer
+        // diesen Test zaehlt, dass die Reihenfolge im Plugin stimmt — ein
+        // echtes Pak wird vom Host an der Footer-Magic erkannt, unabhaengig
+        // davon, womit es anfaengt.
+        MakePak("zwitter.pak");
+        _paks.IsPakFile(path).Should().BeTrue();
+        _sut.DetectKind(path).Should().Be(IcarusFileKind.Pak);
     }
 
-    [Theory]
-    [InlineData("Mod_P.pak")]
-    [InlineData("UE4SS Mods/DepositoMinerios/Scripts/main.lua")]
-    [InlineData(@"UE4SS Mods\DepositoMinerios\enabled.txt")]
-    public void NormalerPfadWirdAngenommen(string relative)
+    [Fact]
+    public void FremdeDateiIstUnbekannt()
     {
-        var root = Path.Combine(Path.GetTempPath(), "icarus-zipslip-root");
-        IcarusArchive.TryResolveSafe(root, relative, out var dst).Should().BeTrue();
-        dst.Should().StartWith(Path.GetFullPath(root));
+        var path = Path.Combine(_dir, "notizen.txt");
+        File.WriteAllText(path, "Hallo!");
+        _sut.DetectKind(path).Should().Be(IcarusFileKind.Unknown);
+    }
+
+    /// <summary>Was weder Pak noch Archiv ist, aber auf <c>.pak</c> endet,
+    /// gilt als PAK — etwa ein abgebrochener Download, den der Installer
+    /// dann sauber ablehnt.</summary>
+    [Fact]
+    public void UnlesbaresMitPakEndungGiltAlsPak()
+    {
+        var path = Path.Combine(_dir, "abgebrochen.pak");
+        File.WriteAllBytes(path, [0x00, 0x01]);
+        _sut.DetectKind(path).Should().Be(IcarusFileKind.Pak);
+    }
+
+    [Fact]
+    public void FehlendeDateiIstUnbekannt()
+        => _sut.DetectKind(Path.Combine(_dir, "gibtsnicht.zip")).Should().Be(IcarusFileKind.Unknown);
+
+    [Theory]
+    [InlineData("mod.pak", true)]
+    [InlineData("mod.zip", true)]
+    [InlineData("mod.RAR", true)]
+    [InlineData("mod.7z", true)]
+    [InlineData("mod.txt", false)]
+    public void EndungsVorfilter(string name, bool expected)
+        => _sut.HasSupportedExtension(name).Should().Be(expected);
+
+    [Fact]
+    public void InspiziertEinArchivUeberDenHostBaukasten()
+    {
+        var path = Path.Combine(_dir, "oredepot.zip");
+        using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            zip.CreateEntry("Icarus Mod Manager/OreDepot.EXMODZ");
+            zip.CreateEntry("UE4SS Mods/DepositoMinerios/Scripts/main.lua");
+            zip.CreateEntry("README_EN.txt");
+        }
+
+        var c = _sut.Inspect(path);
+        c.IsReadable.Should().BeTrue();
+        c.ExmodzEntries.Should().ContainSingle();
+        c.Ue4ssModNames.Should().BeEquivalentTo(["DepositoMinerios"]);
+        c.HasInstallable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void UnlesbaresArchivMeldetFehlerStattLeere()
+    {
+        var path = Path.Combine(_dir, "kaputt.zip");
+        File.WriteAllText(path, "kein ZIP");
+        var c = _sut.Inspect(path);
+        c.IsReadable.Should().BeFalse();
+        c.HasInstallable.Should().BeFalse();
     }
 }

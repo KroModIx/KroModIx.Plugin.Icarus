@@ -11,7 +11,7 @@ namespace KroModIx.Plugin.Icarus.Tests;
 
 /// <summary>Baut eine Icarus-Installation im Temp-Verzeichnis nach, damit
 /// die UE4SS-Logik ohne echtes Spiel prüfbar ist.</summary>
-public sealed class FakeIcarusInstall : IDisposable
+internal sealed class FakeIcarusInstall : IDisposable
 {
     public FakeIcarusInstall(string win64Relative = "Icarus/Binaries/Win64")
     {
@@ -30,7 +30,11 @@ public sealed class FakeIcarusInstall : IDisposable
     public DetectedGame Game { get; }
 
     public Ue4ssPaths Paths => new(Game);
-    public Ue4ssLuaModService Service => new(Paths);
+    public Ue4ssLuaModService Service => new(Paths, Archives);
+
+    /// <summary>Der Archiv-Baukasten kommt seit v1.25.0 aus dem Host;
+    /// hier die Attrappe.</summary>
+    public FakeArchiveService Archives { get; } = new();
 
     /// <summary>Legt die Dateien an, die einen installierten Loader
     /// ausmachen.</summary>

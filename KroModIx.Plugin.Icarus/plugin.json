@@ -2,12 +2,12 @@
   "schema": 1,
   "id": "kroste.icarus",
   "displayName": "Icarus Mod-Manager",
-  "version": "1.24.0",
+  "version": "1.25.0",
   "author": "Kroste",
-  "description": "v1.24.0: Datentabellen-Mods (.EXMODZ) funktionieren — damit sind alle vier Icarus-Mod-Arten abgedeckt. Eine solche Mod ist kein fertiges Pak, sondern eine Aenderungsliste gegen die Datentabellen des Spiels; das Plugin rechnet daraus ein Pak gegen die installierte Spielversion. Alle aktiven Datentabellen-Mods landen in EINEM gemeinsamen Pak, weil getrennte Paks sich ganztabellig ueberschatten wuerden — im gemeinsamen greifen sie auf Feldebene ineinander. Nach einem Icarus-Update muss neu gebaut werden, und das Plugin erkennt und sagt es. v1.23.0: Mod-Archive (ZIP/RAR/7z) werden ausgepackt und einsortiert; UE4SS-Lua-Mods samt Loader auf Knopfdruck, und unter Linux setzt das Plugin die dwmapi-Umleitung im Proton-Praefix — ohne sie laedt UE4SS nicht, und zwar ohne jede Fehlermeldung. Mod-Manager fuer Icarus (RocketWerkz): manuelle PAK-Mods, Steam-Workshop-Abos, Nexus-Katalog mit persoenlichem API-Key, Detail-Dialog mit KI-Zusammenfassung, Update-Discovery, Backup-Snapshot vor jedem Install, DE+EN.",
+  "description": "v1.25.0: Archiv-, Unreal-Pak- und Proton-Praefix-Arbeit liegt jetzt im Host (Contracts v1.30.0) — gemessen: sechs Plugins oeffnen Archive, drei trugen eine eigene Kopie desselben Ausbruch-Schutzes. Verhalten unveraendert, gegengeprueft gegen echte Spieldaten. Braucht Host ab v1.30.0. v1.24.0: Datentabellen-Mods (.EXMODZ) funktionieren — damit sind alle vier Icarus-Mod-Arten abgedeckt. Eine solche Mod ist kein fertiges Pak, sondern eine Aenderungsliste gegen die Datentabellen des Spiels; das Plugin rechnet daraus ein Pak gegen die installierte Spielversion. Alle aktiven Datentabellen-Mods landen in EINEM gemeinsamen Pak, weil getrennte Paks sich ganztabellig ueberschatten wuerden. Nach einem Icarus-Update muss neu gebaut werden, und das Plugin erkennt und sagt es. v1.23.0: Mod-Archive (ZIP/RAR/7z) werden ausgepackt und einsortiert; UE4SS-Lua-Mods samt Loader auf Knopfdruck, und unter Linux setzt das Plugin die dwmapi-Umleitung im Proton-Praefix — ohne sie laedt UE4SS nicht, und zwar ohne jede Fehlermeldung. Mod-Manager fuer Icarus (RocketWerkz): manuelle PAK-Mods, Steam-Workshop-Abos, Nexus-Katalog mit persoenlichem API-Key, Detail-Dialog mit KI-Zusammenfassung, Update-Discovery, Backup-Snapshot vor jedem Install, DE+EN.",
   "assembly": "KroModIx.Plugin.Icarus.dll",
   "entryType": "KroModIx.Plugin.Icarus.IcarusPlugin",
-  "minHostVersion": "1.29.0",
+  "minHostVersion": "1.30.0",
   "targets": [
     {
       "gameId": "icarus",

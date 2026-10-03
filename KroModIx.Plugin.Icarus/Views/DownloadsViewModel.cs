@@ -192,7 +192,7 @@ public sealed partial class DownloadsViewModel : ObservableObject, IDisposable
             if (row.Source.Kind != IcarusFileKind.Archive) continue;
             try
             {
-                var contents = await Task.Run(() => IcarusArchive.Inspect(row.Source.FilePath));
+                var contents = await Task.Run(() => _installer.Archive.Inspect(row.Source.FilePath));
                 var text = DescribeContents(contents);
                 await Dispatcher.UIThread.InvokeAsync(() => row.ContentInfo = text);
             }

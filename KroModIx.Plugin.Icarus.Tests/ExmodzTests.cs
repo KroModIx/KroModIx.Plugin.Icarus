@@ -7,8 +7,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FluentAssertions;
+using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services.Exmodz;
-using KroModIx.Plugin.Icarus.Services.Pak;
 using Xunit;
 
 namespace KroModIx.Plugin.Icarus.Tests;
@@ -215,13 +215,15 @@ public class ExmodzCompilerTests : IDisposable
     /// <summary>Baut eine Basis-<c>data.pak</c> mit zwei Tabellen — über den
     /// eigenen Writer, damit der Test nicht von einer Installation
     /// abhängt.</summary>
+    private readonly FakeUnrealPakService _paks = new();
+
     private string BuildBasePak()
     {
         var path = Path.Combine(_dir, "data.pak");
-        var w = new UnrealPakWriter("C:/BA/work/Temp/Data/");
-        w.AddFile("Items/D_ItemsStatic.json", ExmodzFixture.BaseTable(("Eisen", 10), ("Holz", 5)));
-        w.AddFile("Traits/D_Energy.json", ExmodzFixture.BaseTable(("Strom", 1)));
-        w.Write(path);
+        var b = _paks.CreateBuilder("C:/BA/work/Temp/Data/");
+        b.Add("Items/D_ItemsStatic.json", ExmodzFixture.BaseTable(("Eisen", 10), ("Holz", 5)));
+        b.Add("Traits/D_Energy.json", ExmodzFixture.BaseTable(("Strom", 1)));
+        b.Write(path);
         return path;
     }
 
@@ -246,7 +248,7 @@ public class ExmodzCompilerTests : IDisposable
             assets: [("OreDepot/Assets/Icon.uasset", new byte[] { 9, 9, 9 })]));
 
         var output = Path.Combine(_dir, "merged_P.pak");
-        var result = new ExmodzCompiler().Merge(basePak,
+        var result = new ExmodzCompiler(_paks).Merge(basePak,
             [new ExmodzSource("OreDepot", "Ore Depot", modPath)], output);
 
         result.Ok.Should().BeTrue(result.Message);
@@ -254,15 +256,15 @@ public class ExmodzCompilerTests : IDisposable
         result.AssetCount.Should().Be(1);
         result.FailedMods.Should().BeEmpty();
 
-        using var r = UnrealPakReader.Open(output);
-        r.MountPoint.Should().Be(UnrealPakFormat.IcarusContentMountPoint);
+        using var r = _paks.OpenRead(output);
+        r.MountPoint.Should().Be(ExmodzCompiler.IcarusContentMountPoint);
         // Tabellen bekommen das data/-Praefix, Assets nicht — mit demselben
         // Praefix kann ein Pak beide Klassen nicht adressieren.
-        r.Files().Select(f => f.Path).Should().BeEquivalentTo(
+        r.Entries.Select(e => e.Path).Should().BeEquivalentTo(
             ["data/Items/D_ItemsStatic.json", "Assets/Icon.uasset"]);
-        r.ReadFile("Assets/Icon.uasset").Should().Equal([9, 9, 9]);
+        r.Read("Assets/Icon.uasset").Should().Equal([9, 9, 9]);
 
-        var table = JsonNode.Parse(r.ReadFile("data/Items/D_ItemsStatic.json"))!;
+        var table = JsonNode.Parse(r.Read("data/Items/D_ItemsStatic.json"))!;
         var rows = table["Rows"]!.AsArray();
         rows.Should().HaveCount(3, "die zwei Basiszeilen plus die neue");
         rows.Single(x => x!["Name"]!.GetValue<string>() == "Mod_Ore_Depot")!["Wert"]!
@@ -293,12 +295,12 @@ public class ExmodzCompilerTests : IDisposable
             })));
 
         var output = Path.Combine(_dir, "merged_P.pak");
-        var result = new ExmodzCompiler().Merge(basePak,
+        var result = new ExmodzCompiler(_paks).Merge(basePak,
             [new ExmodzSource("A", "A", modA), new ExmodzSource("B", "B", modB)], output);
 
         result.Ok.Should().BeTrue(result.Message);
-        using var r = UnrealPakReader.Open(output);
-        var eisen = JsonNode.Parse(r.ReadFile("data/Items/D_ItemsStatic.json"))!["Rows"]!
+        using var r = _paks.OpenRead(output);
+        var eisen = JsonNode.Parse(r.Read("data/Items/D_ItemsStatic.json"))!["Rows"]!
             .AsArray().Single(x => x!["Name"]!.GetValue<string>() == "Eisen")!;
         eisen["Wert"]!.GetValue<int>().Should().Be(999, "Mod A");
         eisen["Gewicht"]!.GetValue<int>().Should().Be(7, "Mod B");
@@ -314,13 +316,13 @@ public class ExmodzCompilerTests : IDisposable
             assets: [("B/Assets/Icon.uasset", new byte[] { 2 })]));
 
         var output = Path.Combine(_dir, "merged_P.pak");
-        var result = new ExmodzCompiler().Merge(basePak,
+        var result = new ExmodzCompiler(_paks).Merge(basePak,
             [new ExmodzSource("A", "A", modA), new ExmodzSource("B", "B", modB)], output);
 
         result.Ok.Should().BeTrue(result.Message);
         result.Warnings.Should().ContainSingle().Which.Should().Contain("Assets/Icon.uasset");
-        using var r = UnrealPakReader.Open(output);
-        r.ReadFile("Assets/Icon.uasset").Should().Equal([2], "die spätere Mod gewinnt");
+        using var r = _paks.OpenRead(output);
+        r.Read("Assets/Icon.uasset").Should().Equal([2], "die spätere Mod gewinnt");
     }
 
     /// <summary>Eine kaputte Mod darf die anderen nicht mitnehmen — sonst
@@ -345,19 +347,19 @@ public class ExmodzCompilerTests : IDisposable
             })));
 
         var output = Path.Combine(_dir, "merged_P.pak");
-        var result = new ExmodzCompiler().Merge(basePak,
+        var result = new ExmodzCompiler(_paks).Merge(basePak,
             [new ExmodzSource("Gut", "Gut", gut), new ExmodzSource("Kaputt", "Kaputt", kaputt)], output);
 
         result.Ok.Should().BeTrue("die gute Mod muss gebaut werden");
         result.FailedMods.Should().ContainSingle().Which.Should().StartWith("Kaputt");
-        using var r = UnrealPakReader.Open(output);
+        using var r = _paks.OpenRead(output);
         r.Contains("data/Items/D_ItemsStatic.json").Should().BeTrue();
     }
 
     [Fact]
     public void OhneQuellenWirdNichtsGebaut()
     {
-        var result = new ExmodzCompiler().Merge(BuildBasePak(), [], Path.Combine(_dir, "x_P.pak"));
+        var result = new ExmodzCompiler(_paks).Merge(BuildBasePak(), [], Path.Combine(_dir, "x_P.pak"));
         result.Ok.Should().BeFalse();
         File.Exists(Path.Combine(_dir, "x_P.pak")).Should().BeFalse();
     }

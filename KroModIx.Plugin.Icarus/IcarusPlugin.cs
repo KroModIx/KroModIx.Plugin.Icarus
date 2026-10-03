@@ -18,7 +18,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
     public PluginMetadata Metadata { get; } = new(
         Id: "kroste.icarus",
         DisplayName: "Icarus Mod-Manager",
-        Version: "1.24.0",
+        Version: "1.25.0",
         Author: "Kroste",
         Description:
             "Mod-Manager für Icarus (RocketWerkz). Alle vier Mod-Arten in einer Ansicht: " +
@@ -26,11 +26,11 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             "UE4SS-Lua-Mods und Datentabellen-Mods (.EXMODZ). " +
             "Nexus-Katalog mit persönlichem API-Key, Detail-Dialog mit KI-Zusammenfassung, " +
             "Update-Discovery, Backup-Snapshot vor jedem Install, DE+EN. " +
+            "v1.25.0: Archiv-, Unreal-Pak- und Proton-Präfix-Arbeit kommt aus dem Host " +
+            "(Contracts v1.30.0) statt aus diesem Plugin — Verhalten unverändert. " +
             "v1.24.0: .EXMODZ werden gegen die installierte Spielversion zu einem " +
             "gemeinsamen Pak gerechnet; nach einem Icarus-Update erkennt und meldet " +
-            "das Plugin, dass neu gebaut werden muss. " +
-            "v1.23.0: Mod-Archive (ZIP/RAR/7z) und UE4SS-Loader auf Knopfdruck; unter " +
-            "Linux setzt das Plugin die dwmapi-Umleitung im Proton-Präfix.");
+            "das Plugin, dass neu gebaut werden muss.");
 
     public IReadOnlyList<GameTarget> Targets { get; } = new[]
     {
@@ -90,7 +90,7 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             // bei jedem Refresh neu — Steams Dateipruefung kann ihn
             // wegraeumen, ohne dass das Plugin es mitbekommt.
             var ue4ssPaths = new Ue4ssPaths(game);
-            var lua = new Ue4ssLuaModService(ue4ssPaths);
+            var lua = new Ue4ssLuaModService(ue4ssPaths, host.Archives);
             if (!ue4ssPaths.IsGameLayoutKnown)
                 host.Logger.Info("Icarus: Binaries/Win64 nicht gefunden — UE4SS-Teil bleibt aus fuer {Game}",
                     game.Target.DisplayName);
@@ -99,14 +99,16 @@ public sealed class IcarusPlugin : IGameModPlugin, IUpdateNotifier
             // Plugin-Datenordner (nicht im Spiel), ins Spiel geht nur das
             // daraus gebaute gemeinsame Pak — genau deshalb ist ein Neubau
             // nach einem Spiel-Update ueberhaupt moeglich.
-            var exmodzStore = new ExmodzStore(_paths);
-            var exmodz = new ExmodzService(exmodzStore, manualDir, game);
+            var exmodzStore = new ExmodzStore(_paths, host.UnrealPaks);
+            var exmodz = new ExmodzService(exmodzStore, manualDir, game, host.UnrealPaks);
             if (!exmodz.IsSupported)
                 host.Logger.Info("Icarus: Content/Data/data.pak nicht gefunden — " +
                     "Datentabellen-Mods bleiben aus fuer {Game}", game.Target.DisplayName);
 
             var installer = new PakInstallService(manualDir, workshopDir, _paths.DownloadsDir,
-                lua, exmodz);
+                // v1.25.0: Archiv- und Pak-Arbeit kommen aus dem Host
+                // (Contracts v1.30.0). Vorher lagen beide im Plugin.
+                host.Archives, host.UnrealPaks, lua, exmodz);
             _installers[game.Target.GameId] = installer;
             _backups[game.Target.GameId] = new PakBackupService(installer);
             _updateCheckers[game.Target.GameId] = new InstalledUpdatesChecker(

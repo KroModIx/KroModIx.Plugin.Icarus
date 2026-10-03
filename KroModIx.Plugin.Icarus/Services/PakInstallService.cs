@@ -5,8 +5,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using KroModIx.Plugin.Contracts;
 using NLog;
-using SharpCompress.Archives;
 using KroModIx.Plugin.Icarus.Services.Archive;
 using KroModIx.Plugin.Icarus.Services.Ue4ss;
 using KroModIx.Plugin.Icarus.Services.Exmodz;
@@ -35,6 +35,8 @@ public sealed class PakInstallService
     private readonly string _downloadsDir;
     private readonly Ue4ssLuaModService? _lua;
     private readonly ExmodzService? _exmodz;
+    private readonly IArchiveService _archives;
+    private readonly IcarusArchive _icarusArchive;
 
     /// <param name="lua">v1.23.0: der UE4SS-Dienst, damit ein Archiv seine
     /// Lua-Mods gleich mit installieren kann. Null heißt nur, dass der
@@ -42,15 +44,27 @@ public sealed class PakInstallService
     /// PAK-Teil funktioniert weiter.</param>
     /// <param name="exmodz">v1.24.0: der Dienst für Datentabellen-Mods.
     /// Null heißt, dass <c>.EXMODZ</c> im Archiv nur gemeldet werden.</param>
+    /// <param name="archives">v1.25.0: der Archiv-Baukasten des Hosts
+    /// (<c>IHostServices.Archives</c>). Vorher trug dieses Plugin eine eigene
+    /// Kopie des Zip-Slip-Schutzes — wie zwei weitere Plugins.</param>
+    /// <param name="unrealPaks">v1.25.0: der Pak-Baukasten des Hosts, hier
+    /// nur fuer die Typ-Erkennung einer Download-Datei.</param>
     public PakInstallService(string manualModsDir, string? workshopContentDir, string downloadsDir,
+        IArchiveService archives, IUnrealPakService unrealPaks,
         Ue4ssLuaModService? lua = null, ExmodzService? exmodz = null)
     {
         _manualModsDir = manualModsDir;
         _workshopContentDir = workshopContentDir;
         _downloadsDir = downloadsDir;
+        _archives = archives;
+        _icarusArchive = new IcarusArchive(archives, unrealPaks);
         _lua = lua;
         _exmodz = exmodz;
     }
+
+    /// <summary>Die Icarus-Seite der Archiv-Behandlung — die ViewModels
+    /// brauchen sie fuer die Inhalts-Anzeige einer Download-Row.</summary>
+    public IcarusArchive Archive => _icarusArchive;
 
     public string ModsDir => _manualModsDir;
     public string? WorkshopDir => _workshopContentDir;
@@ -205,8 +219,8 @@ public sealed class PakInstallService
         var result = new List<DownloadedPak>();
         foreach (var file in Directory.EnumerateFiles(_downloadsDir))
         {
-            if (!IcarusArchive.HasSupportedExtension(file)) continue;
-            var kind = IcarusArchive.DetectKind(file);
+            if (!_icarusArchive.HasSupportedExtension(file)) continue;
+            var kind = _icarusArchive.DetectKind(file);
             if (kind == IcarusFileKind.Unknown) continue;
             var info = new FileInfo(file);
             result.Add(new DownloadedPak(file, Path.GetFileName(file),
@@ -234,7 +248,7 @@ public sealed class PakInstallService
             throw new FileNotFoundException("Datei existiert nicht", sourcePath);
 
         var fileName = Path.GetFileName(sourcePath);
-        switch (IcarusArchive.DetectKind(sourcePath))
+        switch (_icarusArchive.DetectKind(sourcePath))
         {
             case IcarusFileKind.Pak:
                 return ModInstallResult.FromPak(Install(sourcePath, overwrite), fileName);
@@ -256,7 +270,7 @@ public sealed class PakInstallService
     private ModInstallResult InstallArchive(string archivePath, string fileName, bool overwrite,
         bool autoRebuild)
     {
-        var contents = IcarusArchive.Inspect(archivePath);
+        var contents = _icarusArchive.Inspect(archivePath);
         if (!contents.IsReadable)
             throw new InvalidDataException($"Archiv nicht lesbar: {contents.Error}");
         if (!contents.HasInstallable)
@@ -269,29 +283,22 @@ public sealed class PakInstallService
         if (contents.HasPaks)
         {
             Directory.CreateDirectory(_manualModsDir);
-            using var archive = ArchiveFactory.Open(archivePath);
-            foreach (var entry in archive.Entries)
+            // Flach einsortieren: Icarus liest nur die erste Ebene von
+            // Content/Paks/mods, eine Ordnerstruktur aus dem Archiv waere
+            // dort wirkungslos.
+            var extracted = _archives.Extract(archivePath, _manualModsDir,
+                new ArchiveExtractOptions(
+                    Filter: key => key.EndsWith(".pak", StringComparison.OrdinalIgnoreCase),
+                    Flatten: true,
+                    Overwrite: overwrite));
+            foreach (var skipped in extracted.SkippedUnsafe)
+                Log.Warn("PAK-Eintrag aus Sicherheitsgruenden uebersprungen: {Key}", skipped);
+            foreach (var dst in extracted.ExtractedPaths)
             {
-                if (entry.IsDirectory || string.IsNullOrEmpty(entry.Key)) continue;
-                var key = entry.Key!.Replace('\\', '/');
-                if (!key.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)) continue;
-
-                // PAKs werden flach einsortiert: Icarus liest nur die erste
-                // Ebene von Content/Paks/mods, eine Ordnerstruktur aus dem
-                // Archiv waere dort wirkungslos.
-                var pakName = Path.GetFileName(key);
-                if (!IcarusArchive.TryResolveSafe(_manualModsDir, pakName, out var dst))
-                {
-                    Log.Warn("Zip-Slip im PAK-Namen uebersprungen: {Key}", key);
-                    continue;
-                }
-                if (File.Exists(dst) && !overwrite)
-                    throw new IOException($"Mod ist bereits installiert: {pakName}");
-                IcarusArchive.ExtractOne(entry, dst);
                 var info = new FileInfo(dst);
-                paks.Add(new InstalledPakMod(dst, pakName, info.Length, info.LastWriteTimeUtc,
-                    IsEnabled: true, Source: PakModSource.Manual));
-                Log.Info("PAK aus Archiv installiert: {Name} → {Path}", pakName, dst);
+                paks.Add(new InstalledPakMod(dst, Path.GetFileName(dst), info.Length,
+                    info.LastWriteTimeUtc, IsEnabled: true, Source: PakModSource.Manual));
+                Log.Info("PAK aus Archiv installiert: {Name} → {Path}", Path.GetFileName(dst), dst);
             }
         }
 
@@ -381,11 +388,8 @@ public sealed class PakInstallService
         Directory.CreateDirectory(tmpDir);
         try
         {
-            using var archive = ArchiveFactory.Open(archivePath);
-            var entry = archive.Entries.First(e =>
-                !e.IsDirectory && (e.Key ?? "").Replace('\\', '/') == chosen);
             var tmpFile = Path.Combine(tmpDir, Path.GetFileName(chosen));
-            IcarusArchive.ExtractOne(entry, tmpFile);
+            _archives.ExtractEntry(archivePath, chosen, tmpFile);
             var installed = _exmodz.Install(tmpFile, nexusModId);
             return [installed.DisplayName];
         }
@@ -399,7 +403,7 @@ public sealed class PakInstallService
     {
         if (!File.Exists(sourcePakPath))
             throw new FileNotFoundException("PAK-Datei existiert nicht", sourcePakPath);
-        if (IcarusArchive.DetectKind(sourcePakPath) != IcarusFileKind.Pak)
+        if (_icarusArchive.DetectKind(sourcePakPath) != IcarusFileKind.Pak)
             throw new InvalidDataException(
                 "Das ist kein Unreal-PAK. Für Archive ist InstallAny zuständig.");
 
@@ -506,7 +510,7 @@ public sealed class PakInstallService
         bool overwrite, IProgress<double>? progress, CancellationToken ct = default)
     {
         Directory.CreateDirectory(_downloadsDir);
-        if (!IcarusArchive.HasSupportedExtension(fileName))
+        if (!_icarusArchive.HasSupportedExtension(fileName))
             fileName += ".pak";
         var target = Path.Combine(_downloadsDir, fileName);
         if (File.Exists(target) && !overwrite)

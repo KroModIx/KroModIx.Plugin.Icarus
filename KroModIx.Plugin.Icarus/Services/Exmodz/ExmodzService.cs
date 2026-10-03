@@ -29,13 +29,17 @@ public sealed class ExmodzService
     private static readonly string[] ForeignMergedPakNames = ["zzz_LMM_Merged_P.pak"];
 
     private readonly ExmodzStore _store;
-    private readonly ExmodzCompiler _compiler = new();
+    private readonly ExmodzCompiler _compiler;
+    private readonly IUnrealPakService _paks;
     private readonly string _modsDir;
     private readonly string? _basePakPath;
 
-    public ExmodzService(ExmodzStore store, string modsDir, DetectedGame game)
+    public ExmodzService(ExmodzStore store, string modsDir, DetectedGame game,
+        IUnrealPakService paks)
     {
         _store = store;
+        _paks = paks;
+        _compiler = new ExmodzCompiler(paks);
         _modsDir = modsDir;
         _basePakPath = ResolveBasePak(game);
         if (_basePakPath is null)
@@ -126,7 +130,7 @@ public sealed class ExmodzService
             return result;
         }
 
-        var baseHash = ExmodzStore.TryReadBaseIndexHash(_basePakPath) ?? "";
+        var baseHash = ExmodzStore.TryReadBaseIndexHash(_paks, _basePakPath) ?? "";
         // Nur die Mods vermerken, die wirklich eingebaut wurden — eine
         // gescheiterte Mod darf die Staleness-Pruefung nicht als
         // „eingebaut" glauben lassen.

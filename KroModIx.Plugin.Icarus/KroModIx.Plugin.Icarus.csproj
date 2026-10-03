@@ -3,8 +3,9 @@
     <OutputType>Library</OutputType>
     <RootNamespace>KroModIx.Plugin.Icarus</RootNamespace>
     <AssemblyName>KroModIx.Plugin.Icarus</AssemblyName>
-    <!-- v1.23.0: ohne das landet SharpCompress.dll nicht in bin/ und
-         das Release-Bundle stirbt beim ersten Archiv-Install mit
+    <!-- Bleibt an, auch ohne eigene NuGet-Abhaengigkeit: kommt eine dazu,
+         muss sie ohne weiteren Eingriff im Bundle landen. Ohne das Flag
+         stirbt das Release-Bundle beim ersten Aufruf mit
          FileNotFoundException (kroste-avalonia, Plugin-Bundle-Regel). -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
@@ -15,9 +16,6 @@
     <PackageReference Include="Avalonia"
                       PrivateAssets="all" ExcludeAssets="runtime" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
-    <!-- v1.23.0: ZIP/RAR/7z. Ohne PrivateAssets/ExcludeAssets — SharpCompress
-         muss ins Plugin-Bundle, der Host bringt es nicht mit. -->
-    <PackageReference Include="SharpCompress" />
   </ItemGroup>
 
   <ItemGroup>

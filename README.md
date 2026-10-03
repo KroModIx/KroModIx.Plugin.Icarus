@@ -14,9 +14,9 @@ Detail-Dialog.
 ## Voraussetzungen
 
 Braucht den [KroModIx-Host](https://github.com/KroModIx/KroModIx) **ab
-v1.27.0** — dort sitzen der Backup-Baukasten und der gemeinsame
-Versions-Vergleich, gegen die dieses Plugin gebaut ist. Ältere Hosts laden
-das Plugin nicht.
+v1.30.0** — dort sitzen seit v1.25.0 dieses Plugins die Baukästen für
+Archive, Unreal-Paks und Proton-Präfixe, gegen die es gebaut ist. Ältere
+Hosts laden das Plugin nicht.
 
 ## Screenshot
 
@@ -31,6 +31,23 @@ das Plugin nicht.
 - UE4SS-Lua-Mods: `<Icarus-Install>/Icarus/Binaries/Win64/Mods/`
 - Datentabellen-Mods: die `.EXMODZ` bleiben im Plugin-Datenordner, ins Spiel
   geht nur das daraus gebaute `zzz_KroModIx_Merged_P.pak`
+
+## Neu in v1.25.0
+
+**Aufgeräumt statt neue Funktion.** Drei Dinge, die dieses Plugin selbst
+mitbrachte, sind in den Host gewandert und dort als API für alle Plugins
+verfügbar: die Archiv-Behandlung (ZIP/RAR/7z samt Ausbruch-Schutz), der
+Unreal-Pak-Leser und -Schreiber, und die DLL-Umleitung im Proton-Präfix.
+
+Der Grund ist nachgemessen: sechs KroModIx-Plugins öffnen Archive, und drei
+davon trugen eine eigene Kopie desselben Sicherheitsschutzes. Der Pak-Code
+ist ohnehin Unreal und nicht Icarus, und die Proton-Umleitung braucht jedes
+UE-Spiel mit UE4SS.
+
+**Für dich ändert sich am Verhalten nichts** — gegengeprüft: derselbe
+Zusammenbau derselben Mod ergibt dasselbe Pak wie vorher, und alle 299
+Einträge der Spiel-Datentabellen werden weiterhin gelesen. Nur die
+Host-Mindestversion steigt auf v1.30.0.
 
 ## Neu in v1.24.0
 

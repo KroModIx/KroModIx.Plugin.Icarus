@@ -14,9 +14,6 @@
          (der Host bringt Contracts mit — im Test-Kontext brauchen wir sie
          explizit). -->
     <PackageReference Include="KroModIx.Plugin.Contracts" />
-    <!-- SharpCompress ebenso: das Plugin referenziert es ohne PrivateAssets,
-         aber der Test braucht die Typen fuer die Archiv-Fixtures. -->
-    <PackageReference Include="SharpCompress" />
   </ItemGroup>
 
   <ItemGroup>

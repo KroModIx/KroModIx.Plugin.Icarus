@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using FluentAssertions;
+using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services.Exmodz;
 using Xunit;
 
@@ -14,13 +15,15 @@ namespace KroModIx.Plugin.Icarus.Tests;
 /// Vorwoche und würde deren Werte zurückdrehen. Deshalb hier gegen jeden
 /// einzelnen Grund geprüft, aus dem ein Neubau fällig wird.
 ///
-/// <para><c>ExmodzStore</c> braucht <c>IcarusPaths</c> und damit einen Host.
-/// Statt einen Attrappen-Host zu bauen, wird die Zustandsdatei direkt
-/// angelegt und die Prüfung über die Pfade aufgerufen, die der Store
-/// bekommt — das ist dieselbe Logik und viel weniger Beiwerk.</para></summary>
+/// <para>Der Pak-Container kommt seit v1.25.0 aus dem Host; hier läuft er
+/// über <see cref="FakeUnrealPakService"/>. Das ist die richtige Testgrenze
+/// — geprüft wird, ob die Staleness-Logik einen geänderten Index-Hash
+/// erkennt, nicht ob der Hash byte-korrekt aus einem Footer
+/// stammt.</para></summary>
 public class ExmodzStateFileTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("icarus-store").FullName;
+    private readonly FakeUnrealPakService _paks = new();
 
     public void Dispose()
     {
@@ -44,17 +47,17 @@ public class ExmodzStateFileTests : IDisposable
     [Fact]
     public void BasisHashIstLesbarUndScheitertStillBeiFehlenderDatei()
     {
-        ExmodzStore.TryReadBaseIndexHash(Path.Combine(_dir, "gibtsnicht.pak")).Should().BeNull();
+        ExmodzStore.TryReadBaseIndexHash(_paks, Path.Combine(_dir, "gibtsnicht.pak")).Should().BeNull();
 
         var kaputt = Path.Combine(_dir, "kaputt.pak");
         File.WriteAllText(kaputt, "kein Pak");
-        ExmodzStore.TryReadBaseIndexHash(kaputt).Should().BeNull();
+        ExmodzStore.TryReadBaseIndexHash(_paks, kaputt).Should().BeNull();
 
         var echt = Path.Combine(_dir, "echt.pak");
-        var w = new KroModIx.Plugin.Icarus.Services.Pak.UnrealPakWriter();
-        w.AddFile("Items/D_ItemsStatic.json", Encoding.UTF8.GetBytes("{\"Rows\":[]}"));
+        var w = _paks.CreateBuilder();
+        w.Add("Items/D_ItemsStatic.json", Encoding.UTF8.GetBytes("{\"Rows\":[]}"));
         w.Write(echt);
-        ExmodzStore.TryReadBaseIndexHash(echt).Should().MatchRegex("^[0-9a-f]{40}$");
+        ExmodzStore.TryReadBaseIndexHash(_paks, echt).Should().MatchRegex("^[0-9a-f]{40}$");
     }
 
     /// <summary>Ein Spiel-Update ändert die Basistabellen und damit den
@@ -67,16 +70,16 @@ public class ExmodzStateFileTests : IDisposable
         var a = Path.Combine(_dir, "woche251.pak");
         var b = Path.Combine(_dir, "woche252.pak");
 
-        var w1 = new KroModIx.Plugin.Icarus.Services.Pak.UnrealPakWriter();
-        w1.AddFile("Items/D_ItemsStatic.json", Encoding.UTF8.GetBytes("{\"Rows\":[{\"Name\":\"A\"}]}"));
+        var w1 = _paks.CreateBuilder();
+        w1.Add("Items/D_ItemsStatic.json", Encoding.UTF8.GetBytes("{\"Rows\":[{\"Name\":\"A\"}]}"));
         w1.Write(a);
 
-        var w2 = new KroModIx.Plugin.Icarus.Services.Pak.UnrealPakWriter();
-        w2.AddFile("Items/D_ItemsStatic.json", Encoding.UTF8.GetBytes("{\"Rows\":[{\"Name\":\"A\"},{\"Name\":\"B\"}]}"));
+        var w2 = _paks.CreateBuilder();
+        w2.Add("Items/D_ItemsStatic.json", Encoding.UTF8.GetBytes("{\"Rows\":[{\"Name\":\"A\"},{\"Name\":\"B\"}]}"));
         w2.Write(b);
 
-        ExmodzStore.TryReadBaseIndexHash(a).Should()
-            .NotBe(ExmodzStore.TryReadBaseIndexHash(b));
+        ExmodzStore.TryReadBaseIndexHash(_paks, a).Should()
+            .NotBe(ExmodzStore.TryReadBaseIndexHash(_paks, b));
     }
 }
 
@@ -85,6 +88,7 @@ public class ExmodzStateFileTests : IDisposable
 public class MergedPakLifecycleTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("icarus-lifecycle").FullName;
+    private readonly FakeUnrealPakService _paks = new();
 
     public void Dispose()
     {
@@ -94,8 +98,8 @@ public class MergedPakLifecycleTests : IDisposable
     private string BuildBasePak(string name = "data.pak")
     {
         var path = Path.Combine(_dir, name);
-        var w = new KroModIx.Plugin.Icarus.Services.Pak.UnrealPakWriter("C:/BA/Temp/Data/");
-        w.AddFile("Items/D_ItemsStatic.json", ExmodzFixture.BaseTable(("Eisen", 10)));
+        var w = _paks.CreateBuilder("C:/BA/Temp/Data/");
+        w.Add("Items/D_ItemsStatic.json", ExmodzFixture.BaseTable(("Eisen", 10)));
         w.Write(path);
         return path;
     }
@@ -115,7 +119,7 @@ public class MergedPakLifecycleTests : IDisposable
             File_Items = new[] { new { Name = "Mod_Item", Wert = 1 } },
         })));
         var sources = new[] { new ExmodzSource("M", "M", mod) };
-        var compiler = new ExmodzCompiler();
+        var compiler = new ExmodzCompiler(_paks);
 
         // Woche 251
         var alt = BuildBasePak("alt.pak");
@@ -124,20 +128,20 @@ public class MergedPakLifecycleTests : IDisposable
 
         // Woche 252: das Spiel bringt eine neue Basiszeile mit
         var neu = Path.Combine(_dir, "neu.pak");
-        var w = new KroModIx.Plugin.Icarus.Services.Pak.UnrealPakWriter("C:/BA/Temp/Data/");
-        w.AddFile("Items/D_ItemsStatic.json",
+        var w = _paks.CreateBuilder("C:/BA/Temp/Data/");
+        w.Add("Items/D_ItemsStatic.json",
             ExmodzFixture.BaseTable(("Eisen", 10), ("Titan", 42)));
         w.Write(neu);
 
         var out2 = Path.Combine(_dir, "merged2_P.pak");
         compiler.Merge(neu, sources, out2).Ok.Should().BeTrue();
 
-        using var r1 = KroModIx.Plugin.Icarus.Services.Pak.UnrealPakReader.Open(out1);
-        using var r2 = KroModIx.Plugin.Icarus.Services.Pak.UnrealPakReader.Open(out2);
+        using var r1 = _paks.OpenRead(out1);
+        using var r2 = _paks.OpenRead(out2);
         var rows1 = System.Text.Json.Nodes.JsonNode
-            .Parse(r1.ReadFile("data/Items/D_ItemsStatic.json"))!["Rows"]!.AsArray();
+            .Parse(r1.Read("data/Items/D_ItemsStatic.json"))!["Rows"]!.AsArray();
         var rows2 = System.Text.Json.Nodes.JsonNode
-            .Parse(r2.ReadFile("data/Items/D_ItemsStatic.json"))!["Rows"]!.AsArray();
+            .Parse(r2.Read("data/Items/D_ItemsStatic.json"))!["Rows"]!.AsArray();
 
         rows1.Select(x => x!["Name"]!.GetValue<string>())
             .Should().BeEquivalentTo(["Eisen", "Mod_Item"]);
@@ -158,7 +162,7 @@ public class MergedPakLifecycleTests : IDisposable
         File.WriteAllText(kaputt, "kein ZIP");
 
         var output = Path.Combine(_dir, "merged_P.pak");
-        var result = new ExmodzCompiler().Merge(basePak,
+        var result = new ExmodzCompiler(_paks).Merge(basePak,
             [new ExmodzSource("K", "K", kaputt)], output);
 
         result.Ok.Should().BeFalse();

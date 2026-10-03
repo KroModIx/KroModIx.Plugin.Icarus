@@ -6,9 +6,8 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using KroModIx.Plugin.Contracts;
 using NLog;
-using SharpCompress.Archives;
-using KroModIx.Plugin.Icarus.Services.Archive;
 
 namespace KroModIx.Plugin.Icarus.Services.Ue4ss;
 
@@ -57,8 +56,13 @@ public sealed class Ue4ssBootstrapper
     private const string FallbackVersion = "v3.0.1";
 
     private readonly HttpClient _http;
+    private readonly IArchiveService _archives;
 
-    public Ue4ssBootstrapper(HttpClient http) => _http = http;
+    public Ue4ssBootstrapper(HttpClient http, IArchiveService archives)
+    {
+        _http = http;
+        _archives = archives;
+    }
 
     /// <summary>Lädt UE4SS und entpackt es nach
     /// <c>&lt;InstallDir&gt;/Icarus/Binaries/Win64/</c>.</summary>
@@ -83,7 +87,7 @@ public sealed class Ue4ssBootstrapper
             {
                 await DownloadAsync(url, tmpZip, progress, ct);
                 progress?.Report(0.85);
-                var files = Extract(tmpZip, win64);
+                var files = Extract(_archives, tmpZip, win64);
                 progress?.Report(1.0);
                 Log.Info("UE4SS {Version} installiert: {Count} Datei(en) → {Dir}",
                     version, files, win64);
@@ -193,32 +197,27 @@ public sealed class Ue4ssBootstrapper
     /// unangetastet, wenn sie schon existieren — in beiden stehen
     /// Einstellungen des Users, und ein Loader-Update darf sie nicht
     /// zurücksetzen.</summary>
-    private static int Extract(string zipPath, string win64Dir)
+    private static int Extract(IArchiveService archives, string zipPath, string win64Dir)
     {
         var keepIfPresent = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "UE4SS-settings.ini", "Mods/mods.txt",
         };
 
-        using var archive = ArchiveFactory.Open(zipPath);
-        var count = 0;
-        foreach (var entry in archive.Entries)
-        {
-            if (entry.IsDirectory || string.IsNullOrEmpty(entry.Key)) continue;
-            var key = entry.Key!.Replace('\\', '/');
-            if (!IcarusArchive.TryResolveSafe(win64Dir, key, out var dst))
+        var result = archives.Extract(zipPath, win64Dir, new ArchiveExtractOptions(
+            Filter: key =>
             {
-                Log.Warn("Zip-Slip im UE4SS-Archiv uebersprungen: {Key}", key);
-                continue;
-            }
-            if (keepIfPresent.Contains(key) && File.Exists(dst))
-            {
+                if (!keepIfPresent.Contains(key)) return true;
+                var dst = Path.Combine(win64Dir,
+                    key.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(dst)) return true;
                 Log.Info("Vorhandene Nutzer-Datei behalten: {Key}", key);
-                continue;
-            }
-            IcarusArchive.ExtractOne(entry, dst);
-            count++;
-        }
-        return count;
+                return false;
+            },
+            Overwrite: true));
+
+        foreach (var skipped in result.SkippedUnsafe)
+            Log.Warn("Eintrag aus dem UE4SS-Archiv aus Sicherheitsgruenden uebersprungen: {Key}", skipped);
+        return result.Count;
     }
 }
