@@ -500,6 +500,13 @@ public sealed class InstalledPaksView : UserControl
         exmodzBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsExmodz)));
         titleRow.Children.Add(exmodzBadge);
 
+        // Fremd-Badge (v1.27.0) — ein Pak, das ein anderer Mod-Manager
+        // verwaltet. Gold-umrandet wie Workshop, denn es ist derselbe
+        // Zustand: sichtbar, aber nicht unser.
+        var foreignBadge = MakeBadge(Strings.T("badge.foreign"), "KrosteGoldBrush", Brushes.Black);
+        foreignBadge.Bind(Border.IsVisibleProperty, new Binding(nameof(PakRow.IsForeign)));
+        titleRow.Children.Add(foreignBadge);
+
         // Update-Badge (Kroste-Gold auf schwarz) — nur wenn CheckUpdatesAsync
         // ein neueres Version bei Nexus entdeckt hat.
         var updateBadge = new Border
@@ -584,13 +591,13 @@ public sealed class InstalledPaksView : UserControl
 
         var toggleBtn = new Button { Content = Strings.T("btn.toggle_enabled") };
         BindRowCommand(toggleBtn, nameof(InstalledPaksViewModel.ToggleEnabledRowCommand));
-        // Sichtbar bei allem, was nicht Workshop ist — bei Lua laeuft das
-        // Umschalten ueber die enabled.txt, bei PAK ueber die Dateiendung.
-        // Workshop bleibt read-only (Steam verwaltet die Ordner).
-        toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop))
-        {
-            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
-        });
+        // Sichtbar bei allem, was das Plugin veraendern darf — bei Lua laeuft
+        // das Umschalten ueber die enabled.txt, bei PAK ueber die
+        // Dateiendung. Workshop verwaltet Steam, fremde Merged-Paks ein
+        // anderer Mod-Manager; beides bleibt read-only. v1.27.0: an
+        // CanModify gebunden statt an !IsWorkshop, sonst muss jede neue
+        // read-only-Quelle hier wieder einzeln nachgetragen werden.
+        toggleBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.CanModify)));
 
         var detailBtn = new Button { Content = Strings.T("btn.details") };
         BindRowCommand(detailBtn, nameof(InstalledPaksViewModel.ShowDetailCommand));
@@ -600,25 +607,26 @@ public sealed class InstalledPaksView : UserControl
         var uninstallBtn = new Button { Content = Strings.T("btn.uninstall") };
         uninstallBtn.Classes.Add("danger");
         BindRowCommand(uninstallBtn, nameof(InstalledPaksViewModel.UninstallRowCommand));
-        uninstallBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop))
-        {
-            Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, bool>(v => !v),
-        });
+        uninstallBtn.Bind(Button.IsVisibleProperty, new Binding(nameof(PakRow.CanModify)));
 
-        var workshopHint = new TextBlock
+        // Statt eines festen „Steam verwaltet"-Texts der Hinweis aus der
+        // Zeile: bei Workshop Steam, bei einem fremden Pak der Name des
+        // Mod-Managers. Ohne diese Angabe sieht der Nutzer nur, dass die
+        // Knoepfe fehlen, und nicht warum.
+        var managedHint = new TextBlock
         {
-            Text = Strings.T("row.steam_managed"),
             FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        workshopHint.Classes.Add("muted");
-        workshopHint.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(PakRow.IsWorkshop)));
+        managedHint.Classes.Add("muted");
+        managedHint.Bind(TextBlock.TextProperty, new Binding(nameof(PakRow.ManagedByHint)));
+        managedHint.Bind(TextBlock.IsVisibleProperty, new Binding(nameof(PakRow.HasManagedByHint)));
 
         var actions = new StackPanel
         {
             Spacing = 6,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { updateBtn, toggleBtn, detailBtn, uninstallBtn, workshopHint },
+            Children = { updateBtn, toggleBtn, detailBtn, uninstallBtn, managedHint },
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };

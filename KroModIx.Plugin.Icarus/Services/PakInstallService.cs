@@ -167,13 +167,17 @@ public sealed class PakInstallService
             if (!isPak && !isDisabled) continue;
 
             var info = new FileInfo(file);
+            // v1.27.0: gehoert das Pak einem fremden Mod-Manager, wird es
+            // gelistet aber nicht angefasst — siehe ForeignPakDetector.
+            var fremd = ForeignPakDetector.IsForeignManaged(file, out var verwalter);
             result.Add(new InstalledPakMod(
                 FilePath: file,
                 FileName: Path.GetFileName(file),
                 FileSizeBytes: info.Length,
                 InstalledUtc: info.LastWriteTimeUtc,
                 IsEnabled: isPak,
-                Source: PakModSource.Manual));
+                Source: fremd ? PakModSource.ForeignManaged : PakModSource.Manual,
+                ManagedBy: fremd ? verwalter : null));
         }
     }
 
@@ -426,6 +430,8 @@ public sealed class PakInstallService
         if (mod.Source == PakModSource.Workshop)
             throw new InvalidOperationException(
                 "Workshop-Mods können nicht deinstalliert werden — Abo in Steam kündigen.");
+        if (mod.Source == PakModSource.ForeignManaged)
+            throw new InvalidOperationException(FremdverwaltetMeldung(mod, "deinstallieren"));
         if (mod.Source == PakModSource.Ue4ssLua)
         {
             if (_lua is null)
@@ -452,11 +458,26 @@ public sealed class PakInstallService
         Log.Info("Icarus-Mod deinstalliert: {Path}", mod.FilePath);
     }
 
+    /// <summary>Die Meldung, die der Nutzer bei einem fremdverwalteten Pak
+    /// bekommt. Sie nennt den Verwalter und sagt, was beim Entfernen
+    /// verloren gehen würde — das Fehlen genau dieser Angabe hat am
+    /// 03.10.2026 Stunden gekostet.</summary>
+    internal static string FremdverwaltetMeldung(InstalledPakMod mod, string verb)
+    {
+        var wer = string.IsNullOrEmpty(mod.ManagedBy) ? "ein anderer Mod-Manager" : mod.ManagedBy;
+        return $"„{mod.FileName}\" wird von {wer} verwaltet und lässt sich hier nicht "
+             + $"{verb}. Darin stecken alle Mods, die {wer} zusammengeführt hat — "
+             + "sie verschwänden auf einen Schlag aus dem Spiel, während ihre Quellen "
+             + $"unberührt liegen bleiben. Zum Ändern {wer} benutzen.";
+    }
+
     public InstalledPakMod SetEnabled(InstalledPakMod mod, bool enabled)
     {
         if (mod.Source == PakModSource.Workshop)
             throw new InvalidOperationException(
                 "Workshop-Mods können nicht deaktiviert werden — Abo in Steam pausieren.");
+        if (mod.Source == PakModSource.ForeignManaged)
+            throw new InvalidOperationException(FremdverwaltetMeldung(mod, "umschalten"));
         if (mod.Source == PakModSource.Ue4ssLua)
         {
             if (_lua is null)

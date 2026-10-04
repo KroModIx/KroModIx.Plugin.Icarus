@@ -134,7 +134,9 @@ Icarus-Mod-Arten abgedeckt (PAK, Workshop, UE4SS-Lua, Datentabellen).
   wird der kuerzeste Dateiname.
 - **Fremde Merged-Paks werden gemeldet, nicht angefasst.**
   `zzz_LMM_Merged_P.pak` kommt nach Alphabet hinter unserem und wuerde es bei
-  gemeinsamen Tabellen ueberstimmen. Es ist nicht unsere Datei.
+  gemeinsamen Tabellen ueberstimmen. Es ist nicht unsere Datei. **Dieser Satz
+  stand hier ab v1.24.0 als Absicht, war aber bis v1.27.0 nicht
+  implementiert** — siehe unten, es hat eine Mod gekostet.
 
 **Reihenfolge der Konstanten, die man nicht neu herleiten darf:** der
 Mount-Point `../../../Icarus/Content/`, das `data/`-Praefix fuer Tabellen (und
@@ -270,3 +272,53 @@ den Host. v0.2 Bug-Fix `~mods` → `mods`.
   anderer Stelle aussieht. In dieser Runde zweimal passiert. Immer `„…“`
   schreiben — in Kommentaren ist das gerade Zeichen harmlos, in Literalen
   nicht.
+
+## Fremde Merged-Paks (ab v1.27.0)
+
+`ForeignPakDetector` erkennt Paks im Mods-Ordner, die einem **anderen
+Mod-Manager** gehören. Sie bekommen `PakModSource.ForeignManaged` und
+`InstalledPakMod.ManagedBy`, ein 🔗-Abzeichen in der Liste, einen Hinweis mit
+dem Namen des Verwalters — und **weder Umschalten noch Deinstallieren**.
+
+**Der bezahlte Anlass, 03.10.2026.** In `Content/Paks/mods/` lag
+`zzz_LMM_Merged_P.pak`, das zusammengeführte Datentabellen-Pak von
+[lmm](https://github.com/DonovanMods/linux-mod-manager) — und damit OreDepots
+halbe Funktion. Das Plugin listete es als gewöhnliche manuelle Mod. Ein Klick
+auf Deinstallieren, 19:34:27 im Protokoll:
+
+```
+INFO|PakInstallService|Icarus-Mod deinstalliert: .../Content/Paks/mods/zzz_LMM_Merged_P.pak
+```
+
+Vierzig Sekunden später startete das Spiel, und der Gegenstand war weg. Nicht
+kaputt — die Quelle lag unversehrt in lmms Zwischenspeicher, nur der Verweis
+im Spielordner fehlte. Gesucht wurde der Fehler danach stundenlang im Spiel,
+in den Datentabellen und im Loader. Das Plugin hat eine fremde Datei
+gelöscht und nichts dazu gesagt.
+
+**Das Erkennungsmerkmal ist der Symlink, nicht der Name.** lmm legt seine
+Paks als Verweis in den Spielordner und hält die Datei in seinem eigenen
+Zwischenspeicher; ein von Hand hineinkopiertes Pak ist eine gewöhnliche
+Datei. Damit trägt die Erkennung auch für Manager, deren Namensschema wir
+nicht kennen, und sie hängt nicht daran, dass jemand sein Präfix beibehält.
+Der Name (`zzz_LMM_`) ist nur das zweite Netz für den Fall, dass ein Manager
+kopiert statt zu verweisen. Gegen die echte Installation geprüft: vier eigene
+Paks bleiben eigen, lmms wird erkannt, und der Verwalter kommt aus dem
+Ziel des Verweises.
+
+**Drei Entscheidungen, die der Code allein nicht hergibt:**
+
+- **Sperren, nicht nur warnen.** Der Nutzer wollte zuerst „Rückfrage, die
+  sagt was verloren geht". Sperren ist besser und folgt dem, was bei
+  `Workshop` schon gilt: was ein anderer verwaltet, wird angezeigt und in
+  Ruhe gelassen. Die Meldung nennt dafür den Verwalter, die Folge **und** den
+  Ausweg (`lmm` benutzen) — als Test festgehalten, denn genau diese drei
+  Angaben haben gefehlt.
+- **Die Knopf-Freigabe hängt an `PakRow.CanModify`, nicht mehr an
+  `!IsWorkshop`.** Sonst muss jede neue read-only-Quelle an drei Stellen in
+  der View nachgetragen werden — und wird an einer vergessen.
+- **Eine unlesbare Datei gilt als gewöhnlich**, nicht als fremd. Ein
+  Lesefehler darf die Liste nicht umdeuten; dann verhält sie sich wie bisher.
+
+**Was bewusst ungesperrt bleibt:** die Bulk-Pfade brauchten keine Änderung,
+sie filtern schon auf `PakModSource.Manual`. Geprüft, nicht angenommen.

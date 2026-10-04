@@ -81,6 +81,9 @@ public static class Strings
         ["row.state.inactive"] = "inaktiv",
         ["row.state.workshop"] = "Workshop",
         ["row.steam_managed"] = "Steam verwaltet",
+        // v1.27.0: fremdverwaltete Paks — {0} ist der Mod-Manager.
+        ["row.state.foreign"] = "Fremdverwaltet",
+        ["row.foreign_managed"] = "{0} verwaltet diese Datei",
         ["row.update_badge_prefix"] = "⬆ Update v",
 
         // Placeholders + Tooltips
@@ -132,6 +135,8 @@ public static class Strings
         ["notify.bulk_enable_result"] = "{0} Mod(s) aktiviert.",
         ["notify.bulk_disable_result"] = "{0} Mod(s) deaktiviert.",
         ["notify.workshop_readonly"] = "Workshop-Mod: Abo in Steam kündigen, dann verschwindet er hier automatisch.",
+        ["verb.uninstall"] = "deinstallieren",
+        ["verb.toggle"] = "umschalten",
         ["notify.uninstalled_prefix"] = "Deinstalliert: ",
         ["notify.bulk_uninstall_result"] = "{0} Mod(s) deinstalliert.",
         ["notify.installed_prefix"] = "Installiert: ",
@@ -237,6 +242,7 @@ public static class Strings
         ["notify.install_exmodz_variants"] = "({0} .EXMODZ im Archiv, {1} aufgenommen — der Rest sind sprachliche Varianten derselben Mod.)",
         ["notify.bulk_install_skipped"] = "{0} übersprungen (nichts Installierbares enthalten).",
         ["badge.exmodz"] = "🧩 TABELLEN",
+        ["badge.foreign"] = "🔗 FREMD",
         ["toggle.exmodz"] = "🧩  Tabellen",
         ["row.exmodz.tables"] = "{0} Tabelle(n)",
         ["status.mod_summary_exmodz"] = "· {0} Tabellen-Mods",
@@ -361,6 +367,8 @@ public static class Strings
         ["row.state.inactive"] = "disabled",
         ["row.state.workshop"] = "Workshop",
         ["row.steam_managed"] = "Steam managed",
+        ["row.state.foreign"] = "Externally managed",
+        ["row.foreign_managed"] = "managed by {0}",
         ["row.update_badge_prefix"] = "⬆ Update v",
 
         // Placeholders + tooltips
@@ -412,6 +420,8 @@ public static class Strings
         ["notify.bulk_enable_result"] = "{0} mod(s) enabled.",
         ["notify.bulk_disable_result"] = "{0} mod(s) disabled.",
         ["notify.workshop_readonly"] = "Workshop mod: unsubscribe in Steam and it will disappear here automatically.",
+        ["verb.uninstall"] = "uninstall",
+        ["verb.toggle"] = "toggle",
         ["notify.uninstalled_prefix"] = "Uninstalled: ",
         ["notify.bulk_uninstall_result"] = "{0} mod(s) uninstalled.",
         ["notify.installed_prefix"] = "Installed: ",
@@ -517,6 +527,7 @@ public static class Strings
         ["notify.install_exmodz_variants"] = "({0} .EXMODZ in the archive, {1} taken — the rest are language variants of the same mod.)",
         ["notify.bulk_install_skipped"] = "{0} skipped (nothing installable inside).",
         ["badge.exmodz"] = "🧩 TABLES",
+        ["badge.foreign"] = "🔗 EXTERNAL",
         ["toggle.exmodz"] = "🧩  Tables",
         ["row.exmodz.tables"] = "{0} table(s)",
         ["status.mod_summary_exmodz"] = "· {0} table mods",

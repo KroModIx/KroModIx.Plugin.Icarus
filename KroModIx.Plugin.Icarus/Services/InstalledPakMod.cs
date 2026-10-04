@@ -22,6 +22,20 @@ public enum PakModSource
     /// daraus gebaute gemeinsame Pak. Genau deshalb ist ein Neubau nach einem
     /// Spiel-Update überhaupt möglich.</summary>
     Exmodz,
+
+    /// <summary>Ein Pak im Mods-Ordner, das <b>einem anderen Mod-Manager
+    /// gehört</b> (v1.27.0) — lmm legt dort etwa sein zusammengeführtes
+    /// <c>zzz_LMM_Merged_P.pak</c> ab, meist als Verweis in seinen eigenen
+    /// Zwischenspeicher.
+    ///
+    /// <para>Wird gelistet, damit der Nutzer sieht was im Spiel liegt, aber
+    /// <b>nicht angefasst</b>: weder Umschalten noch Deinstallieren. Beides
+    /// bringt den fremden Manager aus dem Tritt, und zwar lautlos — am
+    /// 03.10.2026 ist genau so eine Mod aus dem Spiel verschwunden, während
+    /// ihre Quelle unversehrt woanders lag. Dasselbe Prinzip wie bei
+    /// <see cref="Workshop"/>: was ein anderer verwaltet, wird angezeigt und
+    /// in Ruhe gelassen.</para></summary>
+    ForeignManaged,
 }
 
 /// <summary>Eine installierte Icarus-Mod — PAK im Mods-Ordner, Steam-Workshop-
@@ -32,6 +46,11 @@ public enum PakModSource
 /// <see cref="PakModSource.Ue4ssLua"/> zeigt <see cref="FilePath"/> auf den
 /// <b>Ordner</b> der Mod und <see cref="FileName"/> ist dessen Name — UE4SS
 /// lädt pro Ordner, nicht pro Datei.</para>
+///
+/// <para><see cref="ManagedBy"/> nennt bei
+/// <see cref="PakModSource.ForeignManaged"/> den fremden Mod-Manager
+/// („lmm"), damit die Meldung sagen kann, wo der Nutzer stattdessen
+/// hingreifen muss. Sonst null.</para>
 ///
 /// <para><see cref="WorkshopId"/> ist die Steam-Workshop-Item-ID (nur bei
 /// <see cref="PakModSource.Workshop"/> gesetzt, sonst 0).
@@ -55,4 +74,5 @@ public sealed record InstalledPakMod(
     int ScriptCount = 0,
     string? ModVersion = null,
     string? ModAuthor = null,
-    int? NexusModId = null);
+    int? NexusModId = null,
+    string? ManagedBy = null);

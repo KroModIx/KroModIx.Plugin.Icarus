@@ -379,6 +379,16 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
     private void ToggleEnabledRow(PakRow? row)
     {
         if (row is null) return;
+        // Der Dienst wuerde ohnehin werfen; hier abzufangen gibt die
+        // richtige Dringlichkeit (Hinweis statt Fehler) und den Text ohne
+        // „Fehler:"-Vorsatz.
+        if (row.IsForeign)
+        {
+            _host.Notifications.Notify(
+                PakInstallService.FremdverwaltetMeldung(row.Source, Strings.T("verb.toggle")),
+                NotificationLevel.Warning);
+            return;
+        }
         try
         {
             var updated = _installer.SetEnabled(row.Source, !row.Source.IsEnabled);
@@ -437,6 +447,16 @@ public sealed partial class InstalledPaksViewModel : ObservableObject, IDisposab
             _host.Notifications.Notify(
                 Strings.T("notify.workshop_readonly"),
                 NotificationLevel.Info);
+            return;
+        }
+        // v1.27.0: fremdverwaltete Paks nicht anfassen. Die Meldung nennt den
+        // Manager und was verloren ginge — ein stilles Loeschen hat am
+        // 03.10.2026 eine Mod aus dem Spiel genommen, ohne dass es auffiel.
+        if (row.IsForeign)
+        {
+            _host.Notifications.Notify(
+                PakInstallService.FremdverwaltetMeldung(row.Source, Strings.T("verb.uninstall")),
+                NotificationLevel.Warning);
             return;
         }
         bool ok = await _host.Dialogs.ConfirmAsync(
@@ -813,19 +833,47 @@ public sealed partial class PakRow : ObservableObject
 
     public string FileName => Source.FileName;
     public bool IsEnabled => Source.IsEnabled;
-    public string StateLabel => Source.Source == PakModSource.Workshop
-        ? Strings.T("row.state.workshop")
-        : (Source.IsEnabled ? Strings.T("row.state.active") : Strings.T("row.state.inactive"));
+    public string StateLabel => Source.Source switch
+    {
+        PakModSource.Workshop => Strings.T("row.state.workshop"),
+        PakModSource.ForeignManaged => Strings.T("row.state.foreign"),
+        _ => Source.IsEnabled ? Strings.T("row.state.active") : Strings.T("row.state.inactive"),
+    };
     public string Size => FormatBytes(Source.FileSizeBytes);
     public bool IsWorkshop => Source.Source == PakModSource.Workshop;
     public bool IsManual => Source.Source == PakModSource.Manual;
     public bool IsLua => Source.Source == PakModSource.Ue4ssLua;
     public bool IsExmodz => Source.Source == PakModSource.Exmodz;
+
+    /// <summary>v1.27.0: ein Pak, das einem fremden Mod-Manager gehört.</summary>
+    public bool IsForeign => Source.Source == PakModSource.ForeignManaged;
+
+    /// <summary>Ob das Plugin diese Mod verändern darf. Workshop verwaltet
+    /// Steam, fremde Merged-Paks verwaltet ein anderer Mod-Manager — beides
+    /// wird angezeigt und in Ruhe gelassen. Die Oberfläche hängt die
+    /// Umschalt- und Deinstallieren-Knöpfe daran, statt wie bisher an
+    /// <c>!IsWorkshop</c>: sonst muss jede neue read-only-Quelle an drei
+    /// Stellen in der View nachgetragen werden.</summary>
+    public bool CanModify => !IsWorkshop && !IsForeign;
+
+    /// <summary>Der Hinweis unter der Zeile — bei Workshop „von Steam
+    /// verwaltet", bei einem fremden Pak der Name des Managers.</summary>
+    public string ManagedByHint => Source.Source switch
+    {
+        PakModSource.Workshop => Strings.T("row.steam_managed"),
+        PakModSource.ForeignManaged => string.Format(Strings.T("row.foreign_managed"),
+            string.IsNullOrEmpty(Source.ManagedBy) ? "?" : Source.ManagedBy),
+        _ => "",
+    };
+
+    public bool HasManagedByHint => IsWorkshop || IsForeign;
+
     public string SourceBadge => Source.Source switch
     {
         PakModSource.Workshop => Strings.T("badge.workshop"),
         PakModSource.Ue4ssLua => Strings.T("badge.lua"),
         PakModSource.Exmodz => Strings.T("badge.exmodz"),
+        PakModSource.ForeignManaged => Strings.T("badge.foreign"),
         _ => "",
     };
 
