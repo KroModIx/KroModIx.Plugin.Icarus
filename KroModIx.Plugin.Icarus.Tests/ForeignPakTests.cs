@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using FluentAssertions;
+using KroModIx.Plugin.Contracts;
 using KroModIx.Plugin.Icarus.Services;
 using Xunit;
 
@@ -13,7 +14,7 @@ namespace KroModIx.Plugin.Icarus.Tests;
 /// Deinstallieren nahm damit alle Datentabellen-Mods aus dem Spiel, die lmm
 /// dort zusammengeführt hatte — lautlos, während die Quellen unversehrt in
 /// lmms Zwischenspeicher lagen.</summary>
-public sealed class ForeignPakDetectorTests : IDisposable
+public sealed class ForeignPakErkennungTests : IDisposable
 {
     private readonly string _tmp = Directory.CreateTempSubdirectory("icarus-fremd").FullName;
 
@@ -36,7 +37,7 @@ public sealed class ForeignPakDetectorTests : IDisposable
     {
         var p = Datei("zzz_LMM_Merged_P.pak");
 
-        ForeignPakDetector.IsForeignManaged(p, out var wer).Should().BeTrue();
+        ForeignManagerDetection.IsForeignManaged(p, out var wer).Should().BeTrue();
         wer.Should().Be("lmm");
     }
 
@@ -55,7 +56,7 @@ public sealed class ForeignPakDetectorTests : IDisposable
         var link = Path.Combine(_tmp, "HarmlosBenannt_P.pak");
         File.CreateSymbolicLink(link, imCache);
 
-        ForeignPakDetector.IsForeignManaged(link, out var wer).Should().BeTrue();
+        ForeignManagerDetection.IsForeignManaged(link, out var wer).Should().BeTrue();
         wer.Should().Be("lmm");
     }
 
@@ -68,8 +69,8 @@ public sealed class ForeignPakDetectorTests : IDisposable
         var link = Path.Combine(_tmp, "verweis_P.pak");
         File.CreateSymbolicLink(link, ziel);
 
-        ForeignPakDetector.IsForeignManaged(link, out var wer).Should().BeTrue();
-        wer.Should().Be("ein anderer Mod-Manager");
+        ForeignManagerDetection.IsForeignManaged(link, out var wer).Should().BeTrue();
+        wer.Should().Be(ForeignManagerDetection.UnbekannterVerwalter);
     }
 
     /// <summary>Eine von Hand hineinkopierte Mod ist unsere und muss sich
@@ -84,7 +85,7 @@ public sealed class ForeignPakDetectorTests : IDisposable
     {
         var p = Datei(name);
 
-        ForeignPakDetector.IsForeignManaged(p, out var wer).Should().BeFalse();
+        ForeignManagerDetection.IsForeignManaged(p, out var wer).Should().BeFalse();
         wer.Should().BeEmpty();
     }
 
@@ -93,7 +94,7 @@ public sealed class ForeignPakDetectorTests : IDisposable
     /// bisher.</summary>
     [Fact]
     public void Fehlende_Datei_gilt_als_gewoehnlich()
-        => ForeignPakDetector.IsForeignManaged(
+        => ForeignManagerDetection.IsForeignManaged(
             Path.Combine(_tmp, "gibtsnicht.pak"), out _).Should().BeFalse();
 }
 

@@ -273,7 +273,16 @@ den Host. v0.2 Bug-Fix `~mods` → `mods`.
   schreiben — in Kommentaren ist das gerade Zeichen harmlos, in Literalen
   nicht.
 
-## Fremde Merged-Paks (ab v1.27.0)
+## Fremde Merged-Paks (ab v1.27.0, zentral ab v1.28.0)
+
+**Seit v1.28.0 kommt die Erkennung aus `ForeignManagerDetection` in den
+Contracts** (Host v1.34.0), nicht mehr aus dem plugin-eigenen
+`ForeignPakDetector`. Der ist gelöscht. Hintergrund: nachgemessen hatten 9 von
+9 Plugins löschende Pfade und genau dieses eine erkannte Verweise — also
+gehörte die Erkennung dorthin, wo alle sie haben. Eine Kopie im Plugin wäre
+genau die Doppelung, die dieser Sprint abschafft. `FremdverwaltetMeldung`
+bleibt als Signatur, delegiert aber; der Text liegt zentral, damit alle neun
+dasselbe sagen.
 
 `ForeignPakDetector` erkennt Paks im Mods-Ordner, die einem **anderen
 Mod-Manager** gehören. Sie bekommen `PakModSource.ForeignManaged` und

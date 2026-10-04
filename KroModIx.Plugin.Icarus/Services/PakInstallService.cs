@@ -169,7 +169,7 @@ public sealed class PakInstallService
             var info = new FileInfo(file);
             // v1.27.0: gehoert das Pak einem fremden Mod-Manager, wird es
             // gelistet aber nicht angefasst — siehe ForeignPakDetector.
-            var fremd = ForeignPakDetector.IsForeignManaged(file, out var verwalter);
+            var fremd = ForeignManagerDetection.IsForeignManaged(file, out var verwalter);
             result.Add(new InstalledPakMod(
                 FilePath: file,
                 FileName: Path.GetFileName(file),
@@ -458,18 +458,11 @@ public sealed class PakInstallService
         Log.Info("Icarus-Mod deinstalliert: {Path}", mod.FilePath);
     }
 
-    /// <summary>Die Meldung, die der Nutzer bei einem fremdverwalteten Pak
-    /// bekommt. Sie nennt den Verwalter und sagt, was beim Entfernen
-    /// verloren gehen würde — das Fehlen genau dieser Angabe hat am
-    /// 03.10.2026 Stunden gekostet.</summary>
+    /// <summary>Delegiert an <see cref="ForeignManagerDetection.Meldung"/> —
+    /// der Text liegt seit Contracts v1.34.0 dort, damit alle neun Plugins
+    /// dasselbe sagen. Die Signatur bleibt, weil die ViewModels sie rufen.</summary>
     internal static string FremdverwaltetMeldung(InstalledPakMod mod, string verb)
-    {
-        var wer = string.IsNullOrEmpty(mod.ManagedBy) ? "ein anderer Mod-Manager" : mod.ManagedBy;
-        return $"„{mod.FileName}\" wird von {wer} verwaltet und lässt sich hier nicht "
-             + $"{verb}. Darin stecken alle Mods, die {wer} zusammengeführt hat — "
-             + "sie verschwänden auf einen Schlag aus dem Spiel, während ihre Quellen "
-             + $"unberührt liegen bleiben. Zum Ändern {wer} benutzen.";
-    }
+        => ForeignManagerDetection.Meldung(mod.FileName, mod.ManagedBy, verb);
 
     public InstalledPakMod SetEnabled(InstalledPakMod mod, bool enabled)
     {
